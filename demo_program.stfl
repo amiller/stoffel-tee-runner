@@ -1,0 +1,10 @@
+# W7 demo program: the committee jointly samples two secret random values,
+# multiplies them (consumes a Beaver triple from HoneyBadger preprocessing),
+# and opens the product. No client inputs — runs entirely committee-side,
+# exercising preprocessing, the online multiplication, and a robust open.
+
+def main() -> int64:
+  var a: secret int64 = Share.random()
+  var b: secret int64 = Share.random()
+  var c: secret int64 = Share.mul(a, b)
+  return c.reveal()
