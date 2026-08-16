@@ -1,0 +1,17 @@
+[package]
+name = "lobby-records"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Signed record schema for the attested MPC committee lobby"
+
+# Deliberately NO dependency on stoffel-vm. Attestation evidence travels as
+# opaque strings (quote hex, collateral JSON, event log), so the lobby service
+# and the webapp can handle records without pulling in the MPC VM and its DCAP
+# tree. Only the verifier needs those, and it depends on stoffel-vm directly.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ed25519-dalek = { version = "2", features = ["std"] }
+blake3 = "1.5"
+hex = "0.4"
