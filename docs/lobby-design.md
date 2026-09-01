@@ -1,6 +1,25 @@
 # A lobby for attested MPC committees
 
-Status: design sketch, 2026-08-15. Nothing here is built yet.
+Status: v1 service implemented, 2026-08-29. Quote verification and deployment integration remain downstream work.
+
+The v1 service is now implemented as the `stoffel-lobby` binary. It listens on
+`LOBBY_ADDR` (default `127.0.0.1:8080`) and stores signed JSONL envelopes at
+`LOBBY_STORE` (default `lobby.jsonl`). The service verifies signatures and record
+references; it does not verify TDX quotes or claim a verifier verdict. Run it with
+`LOBBY_ADDR=0.0.0.0:8080 LOBBY_STORE=/var/lib/stoffel-lobby/lobby.jsonl` behind the
+dstack tenant's proxied port. The JSONL file should be on durable, access-controlled
+storage and backed up as an append-only artifact.
+
+The repository's code-level evidence is Tier 1: the tests exercise the full two-node
+announce → propose → join → result → bundle lifecycle over a real HTTP socket against
+the `stoffel-lobby` binary (`crates/lobby/tests/http.rs`, transcript committed under
+`.evidence/issue-2/`), including unknown fields, a forged signature, a record tampered
+after signing, refusal to fabricate a bundle from an incomplete lifecycle, reload of
+the store with re-verification, and rejection of a tampered store line at startup.
+The bundle the service returns is also re-verified signature-by-signature with
+`lobby-records` alone, without asking the service. There is no staging deployment or
+`stoffel-verify` binary in this repository, so quote verification and full independent
+bundle verification remain downstream work.
 
 ## The problem, stated from what exists
 
