@@ -370,6 +370,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "stoffel-lobby"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "lobby-records",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
