@@ -1,0 +1,78 @@
+[
+  {
+    "job_id": "6d6f636b2d6f70656e0000000000000000000000000000000000000000000000",
+    "program_id": "mock-program-6d6f636b2d6f70656e0000000000000000000000000000000000000000000000",
+    "program_url": null,
+    "entry": "main",
+    "n_parties": 2,
+    "threshold": 0,
+    "policy": {
+      "allowed_measurements": [],
+      "allowed_compose_hashes": []
+    },
+    "not_before": null,
+    "state": "open",
+    "proposer": "353c8a7feeca38b2c4536e0bd2586fdb18d070e50e059f1d43f8bfefb97a7ce1",
+    "created_at": 1786920000,
+    "signature": "5d42bf018e5968a9624fc63589c5f880e84a416f1d814299383b6c846604021f56acc00b70c39f11d7860adc4730d39b82357c199ea22d1914ac38e62b07b400"
+  },
+  {
+    "job_id": "6d6f636b2d666f726d696e6700000000000000000000000000000000000000",
+    "program_id": "mock-program-6d6f636b2d666f726d696e6700000000000000000000000000000000000000",
+    "program_url": null,
+    "entry": "main",
+    "n_parties": 2,
+    "threshold": 0,
+    "policy": {
+      "allowed_measurements": [
+        "1111111111111111111111111111111111111111111111111111111111111111"
+      ],
+      "allowed_compose_hashes": []
+    },
+    "not_before": null,
+    "state": "forming",
+    "proposer": "353c8a7feeca38b2c4536e0bd2586fdb18d070e50e059f1d43f8bfefb97a7ce1",
+    "created_at": 1786918000,
+    "signature": "3b6839d9789b3fe0ab6dc2444e78d353694d579f113ec9fe51ae28455757a3ec6d67ecb19d43c9cdb9c989745eaa33650c3ca23ac3210a1b5b80b5c34951f700"
+  },
+  {
+    "job_id": "6d6f636b2d72756e6e696e6700000000000000000000000000000000000000",
+    "program_id": "mock-program-6d6f636b2d72756e6e696e6700000000000000000000000000000000000000",
+    "program_url": null,
+    "entry": "main",
+    "n_parties": 2,
+    "threshold": 0,
+    "policy": {
+      "allowed_measurements": [
+        "2222222222222222222222222222222222222222222222222222222222222222"
+      ],
+      "allowed_compose_hashes": [
+        "3333333333333333333333333333333333333333333333333333333333333333"
+      ]
+    },
+    "not_before": null,
+    "state": "running",
+    "proposer": "353c8a7feeca38b2c4536e0bd2586fdb18d070e50e059f1d43f8bfefb97a7ce1",
+    "created_at": 1786916000,
+    "signature": "eaa0dd6dcf65987dbd1afb267b783c4fe8f88436dfaa363a852b4833967e9c1324b219176b3fecb8e5c37eeeea44d747edd7bb4200d1dd19ca40afd8888f3103"
+  },
+  {
+    "job_id": "6d6f636b2d6661696c65640000000000000000000000000000000000000000",
+    "program_id": "mock-program-6d6f636b2d6661696c65640000000000000000000000000000000000000000",
+    "program_url": null,
+    "entry": "main",
+    "n_parties": 2,
+    "threshold": 0,
+    "policy": {
+      "allowed_measurements": [
+        "4444444444444444444444444444444444444444444444444444444444444444"
+      ],
+      "allowed_compose_hashes": []
+    },
+    "not_before": null,
+    "state": "failed",
+    "proposer": "353c8a7feeca38b2c4536e0bd2586fdb18d070e50e059f1d43f8bfefb97a7ce1",
+    "created_at": 1786914000,
+    "signature": "cdbb1c6a5da781c7bec6a0aa7d82974ceb763e4202c0f384cb32e349679bda5d58bdbf2eaa8e5eaab2a738effecec598b8dd0aeb0123621fdaa527ac03c7cf04"
+  }
+]

@@ -1,0 +1,9 @@
+{
+ "_note": "Synthetic-but-consistent: shape and digest convention captured from a live dstack CVM; deployment-identifying payloads replaced and registers recomputed.",
+ "rtmr": [
+  "68102e7b524af310f7b7d426ce75481e36c40f5d513a9009c046e9d37e31551f0134d954b496a3357fd61d03f07ffe96",
+  "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+  "a2a58c9a959a4fa44bd6da0c97a2270c051faf12084cfe91ae900e4fdff6cdd4f69a82005e04ee920f231497894d677f",
+  "c105accbaff6c02f75fc41592037b4d77891025f3b7635cd7dcad1af3903881641a422ca1ff0b3cffa9b9680c7ac3779"
+ ]
+}
