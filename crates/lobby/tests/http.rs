@@ -20,13 +20,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn now() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).expect("clock before epoch").as_secs() }
 
-fn node(key: &SigningKey) -> NodeRecord {
+fn node(key: &SigningKey, measurement: &str) -> NodeRecord {
     let pk = key.verifying_key().to_bytes();
     NodeRecord {
         node_id: node_id_for(&pk), pubkey: hex::encode(pk), endpoint: "node:8080".into(),
         max_parties: 2, supported_thresholds: vec![0], operator_label: "evidence".into(),
         attestation: AttestationBlob { quote_hex: "quote".into(), collateral_json: "{}".into(), event_log: "measurement".into() },
-        announced_at: now(), signature: String::new(),
+        measurement: measurement.into(), announced_at: now(), signature: String::new(),
     }
 }
 
@@ -107,6 +107,17 @@ fn exchange(addr: SocketAddr, method: &str, path: &str, body: &str, expected: u1
     payload
 }
 
+/// Write the request bytes verbatim, for headers `http()` would normalize.
+fn raw_http(addr: SocketAddr, request: &str) -> (u16, String) {
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream.write_all(request.as_bytes()).expect("write request");
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).expect("read response");
+    println!("raw request -> {}", raw.split("\r\n\r\n").nth(1).unwrap_or(""));
+    let status = raw.split_whitespace().nth(1).unwrap().parse().expect("status code");
+    (status, raw.split("\r\n\r\n").nth(1).unwrap_or("").to_string())
+}
+
 #[test]
 fn http_lifecycle_bundle_and_reload_transcript() {
     let store: PathBuf = std::env::temp_dir().join(format!("lobby-http-evidence-{}-{}.jsonl", std::process::id(), now()));
@@ -114,7 +125,9 @@ fn http_lifecycle_bundle_and_reload_transcript() {
     println!("server stderr: {}", server.stderr.lock().unwrap().join("\n"));
 
     let keys = [SigningKey::from_bytes(&[1; 32]), SigningKey::from_bytes(&[2; 32])];
-    let nodes = [node(&keys[0]), node(&keys[1])];
+    let m0 = "aa".repeat(32);
+    let m1 = "55".repeat(32);
+    let nodes = [node(&keys[0], &m0), node(&keys[1], &m1)];
 
     exchange(server.addr, "POST", "/nodes", &signed(nodes[0].clone(), &keys[0]).to_string(), 201);
     exchange(server.addr, "POST", "/nodes", &signed(nodes[1].clone(), &keys[1]).to_string(), 201);
@@ -179,5 +192,101 @@ fn http_lifecycle_bundle_and_reload_transcript() {
     assert!(!out.status.success());
     assert!(stderr.contains("signature does not verify"), "tampered record was accepted on reload: {stderr}");
 
+    let _ = std::fs::remove_file(&store);
+}
+
+#[test]
+fn measurement_filter_and_query_validation_transcript() {
+    let store: PathBuf = std::env::temp_dir().join(format!("lobby-http-filter-{}-{}.jsonl", std::process::id(), now()));
+    let mut server = start(&store);
+
+    // node 0 runs m0, node 1 runs m1; both announce through the real HTTP path
+    let keys = [SigningKey::from_bytes(&[1; 32]), SigningKey::from_bytes(&[2; 32])];
+    let m0 = "aa".repeat(32);
+    let m1 = "55".repeat(32);
+    let nodes = [node(&keys[0], &m0), node(&keys[1], &m1)];
+    for (i, n) in nodes.iter().enumerate() {
+        exchange(server.addr, "POST", "/nodes", &signed(n.clone(), &keys[i]).to_string(), 201);
+    }
+
+    // exact equality: one matching node out of two, the other is not returned
+    let body = exchange(server.addr, "GET", &format!("/nodes?measurement={m0}"), "", 200);
+    let listed: Vec<NodeRecord> = serde_json::from_str(&body).expect("nodes deserialize");
+    assert_eq!(listed.len(), 1, "measurement filter must be exact, got: {body}");
+    assert_eq!(listed[0].node_id, nodes[0].node_id);
+    assert_eq!(listed[0].measurement, m0);
+    let body = exchange(server.addr, "GET", &format!("/nodes?measurement={m1}"), "", 200);
+    let listed: Vec<NodeRecord> = serde_json::from_str(&body).expect("nodes deserialize");
+    assert_eq!((listed.len(), listed[0].node_id.as_str()), (1, nodes[1].node_id.as_str()));
+
+    // the old substring behavior: a two-char value that appears inside both
+    // measurements is now a 400, not a list of every node
+    let (status, body) = http(server.addr, "GET", "/nodes?measurement=aa", "");
+    assert_eq!(status, 400, "substring measurement must not filter: {body}");
+    assert!(body.contains("measurement"), "400 must name the parameter: {body}");
+    println!("GET /nodes?measurement=aa -> {status} {body}");
+    // 64 chars but not hex
+    exchange(server.addr, "GET", &format!("/nodes?measurement={}", "zz".repeat(32)), "", 400);
+    // freshness that does not parse as u64
+    let (status, body) = http(server.addr, "GET", "/nodes?freshness=soon", "");
+    assert_eq!(status, 400, "unparsable freshness must 400: {body}");
+    assert!(body.contains("freshness"), "400 must name the parameter: {body}");
+    println!("GET /nodes?freshness=soon -> {status} {body}");
+    // state that is not a JobState
+    let (status, body) = http(server.addr, "GET", "/jobs?state=running-behind", "");
+    assert_eq!(status, 400, "unknown state must 400: {body}");
+    assert!(body.contains("state"), "400 must name the parameter: {body}");
+    println!("GET /jobs?state=running-behind -> {status} {body}");
+    // a query pair without '='
+    let (status, body) = http(server.addr, "GET", "/nodes?measurement", "");
+    assert_eq!(status, 400, "pair without '=' must 400: {body}");
+    assert!(body.contains("measurement"), "400 must name the parameter: {body}");
+    println!("GET /nodes?measurement -> {status} {body}");
+    let (status, body) = http(server.addr, "GET", "/nodes?freshness=5&measurement", "");
+    assert_eq!(status, 400, "pair without '=' must 400 even after valid pairs: {body}");
+    assert!(body.contains("measurement"), "400 must name the parameter: {body}");
+    println!("GET /nodes?freshness=5&measurement -> {status} {body}");
+
+    // the valid forms still work
+    let body = exchange(server.addr, "GET", "/nodes?freshness=60", "", 200);
+    let listed: Vec<NodeRecord> = serde_json::from_str(&body).expect("nodes deserialize");
+    assert_eq!(listed.len(), 2, "both nodes are fresh: {body}");
+    let body = exchange(server.addr, "GET", "/nodes?measurement=zz", "", 400);
+    assert!(body.contains("measurement"));
+    exchange(server.addr, "GET", "/jobs?state=open", "", 200);
+    // POST with a malformed query is refused too, not silently stripped
+    let mut post = serde_json::to_value(&nodes[0]).unwrap();
+    post["signature"] = json!("");
+    let (status, body) = http(server.addr, "POST", "/nodes?measurement", &post.to_string());
+    assert_eq!(status, 400, "POST query syntax must be validated: {body}");
+    println!("POST /nodes?measurement -> {status} {body}");
+
+    server.stop();
+    let _ = std::fs::remove_file(&store);
+}
+
+#[test]
+fn content_length_header_transcript() {
+    let store: PathBuf = std::env::temp_dir().join(format!("lobby-http-cl-{}-{}.jsonl", std::process::id(), now()));
+    let mut server = start(&store);
+
+    // any casing is honored: CONTENT-LENGTH: 0 reads as a bodyless GET
+    let (status, body) = raw_http(server.addr, "GET /nodes HTTP/1.1\r\nHost: lobby\r\nCONTENT-LENGTH: 0\r\nConnection: close\r\n\r\n");
+    assert_eq!(status, 200, "case-insensitive Content-Length must be honored: {body}");
+    println!("GET with CONTENT-LENGTH: 0 -> {status} {body}");
+
+    // missing Content-Length: the old code fell back to 0 and read no body
+    let (status, body) = raw_http(server.addr, "GET /nodes HTTP/1.1\r\nHost: lobby\r\nConnection: close\r\n\r\n");
+    assert_eq!(status, 400, "missing Content-Length must 400: {body}");
+    assert!(body.contains("Content-Length"), "400 must say what is wrong: {body}");
+    println!("GET without Content-Length -> {status} {body}");
+
+    // present but unparsable
+    let (status, body) = raw_http(server.addr, "GET /nodes HTTP/1.1\r\nHost: lobby\r\nContent-Length: many\r\nConnection: close\r\n\r\n");
+    assert_eq!(status, 400, "unparsable Content-Length must 400: {body}");
+    assert!(body.contains("Content-Length"), "400 must say what is wrong: {body}");
+    println!("GET with Content-Length: many -> {status} {body}");
+
+    server.stop();
     let _ = std::fs::remove_file(&store);
 }
