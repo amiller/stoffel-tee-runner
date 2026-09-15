@@ -14,8 +14,10 @@ The repository's code-level evidence is Tier 1: the tests exercise the full two-
 announce → propose → join → result → bundle lifecycle over a real HTTP socket against
 the `stoffel-lobby` binary (`crates/lobby/tests/http.rs`, transcript committed under
 `.evidence/issue-2/`), including unknown fields, a forged signature, a record tampered
-after signing, refusal to fabricate a bundle from an incomplete lifecycle, reload of
-the store with re-verification, and rejection of a tampered store line at startup.
+after signing, the bundle served while the lifecycle is incomplete and when results
+disagree (agreement and completeness are the reader's checks, not the service's),
+reload of the store with re-verification, and rejection of a tampered store line at
+startup.
 The bundle the service returns is also re-verified signature-by-signature with
 `lobby-records` alone, without asking the service. There is no staging deployment or
 `stoffel-verify` binary in this repository, so quote verification and full independent
