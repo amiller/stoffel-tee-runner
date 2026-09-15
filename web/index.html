@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>stoffel lobby — read-only view</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>stoffel lobby</h1>
+    <p class="tagline">Read-only view. The lobby is an untrusted index: this page renders
+      what the records say — it asserts nothing about them. Verification is a command you
+      run (see Evidence).</p>
+    <form id="controls">
+      <label for="base">lobby base URL</label>
+      <input id="base" type="text" placeholder="empty = same origin as this page (e.g. the mock)">
+      <button id="load" type="submit">Load</button>
+    </form>
+  </header>
+
+  <section id="nodes-view">
+    <h2>Nodes</h2>
+    <p class="note">The TDX measurement a quote attests is established only by verifying the
+      quote. This page displays attestation material as served, and no measurement it did
+      not compute.</p>
+    <div id="nodes" class="container"></div>
+  </section>
+
+  <section id="jobs-view">
+    <h2>Jobs</h2>
+    <p class="note">Grouped by <code>JobState</code>. A job whose policy lists no accepted
+      measurements is unconstrained: any code would be admitted.</p>
+    <div id="jobs" class="container"></div>
+  </section>
+
+  <section id="evidence-view" hidden>
+    <h2>Evidence</h2>
+    <div id="evidence" class="container"></div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

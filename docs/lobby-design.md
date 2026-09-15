@@ -163,6 +163,13 @@ a rustcrypto backend, so compiling it to wasm is plausible; if that turns out no
 the honest fallback is to show the bundle and the one command that checks it, not to assert a
 verdict the page did not compute.
 
+Current state (issue #4): the page under `web/` ships the fallback. The wasm
+build of `stoffel-verify` fails today — `stoffel-vm`'s tokio/quinn tree pulls
+`mio` unconditionally and mio rejects `wasm32-unknown-unknown` — so the
+Evidence view shows the bundle, each node's collateral window, and the exact
+`stoffel-verify --at …` command with the time pinned inside that window, and
+no verdict text at all.
+
 ## Deliberately not in v1
 
 - Transparency log with inclusion proofs (omission/equivocation remain trusted)
