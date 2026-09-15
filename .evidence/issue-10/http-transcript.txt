@@ -1,0 +1,209 @@
+# stoffel-lobby transcript — evidence for issue #10 acceptance
+
+Tier 1, code-level (this repo has no staging deployment). The tests drive the real
+`stoffel-lobby` binary over HTTP from a separate process. The acceptance sequence —
+announce, join, re-announce with a different attestation, fetch the bundle, assert the
+bundle carries the FIRST announce — is `http_reannounce_after_join_does_not_rewrite_the_bundle`
+in `crates/lobby/tests/http.rs`. Key lines from that run:
+
+    first announce pinned by the join: 432b0de5296778a32822c02c0ec74db34b938a6301d0785c460f05d56aa1d675
+    POST /nodes -> 201 {"accepted":true}                                  <- first announce
+    POST /jobs -> 201 {"accepted":true}
+    POST /jobs/reannounce-job/join -> 400 {"error":"node_announce_hash does not match the node's current announce"}
+    POST /jobs/reannounce-job/join -> 201 {"accepted":true}               <- joins pinned to the first announce
+    POST /nodes -> 201 {"accepted":true}                                  <- re-announce, different attestation
+    re-announce hash (must NOT appear in the bundle): da850b89f8013ee64613e8aca480319bdffc14a5723d079b083fd38631959a9c
+    POST /jobs/reannounce-job/result -> 201 {"accepted":true}
+    GET /jobs/reannounce-job/bundle -> 200 ... "event_log":"first-measurement","quote_hex":"quote-one" ... "version":2
+    bundle carries the first announce; all four signatures re-verify offline
+
+Full transcript below, captured on the branch.
+
+- date (UTC): 2026-09-15T20:14:41Z
+- branch: ready-10, parent commit: 0f2fbcdb68d677b73171384241d1195084b00c83 (origin/main)
+- image: sha256:a3535ab419a167bf1c5acc0ea5d536c358152a9fb8dd8504068ef24bb0f4a1f1
+- note: the issue names `./scripts/build.sh test -p lobby`; the package is
+  `stoffel-lobby` (`-p lobby` matches no package), so the equivalent
+  `./scripts/build.sh test -p stoffel-lobby` is what runs. `scripts/build.sh`
+  drops `--cpus` on hosts whose kernel has no cgroup-v2 cpu controller (zed);
+  the memory cap is unchanged.
+
+## command: ./scripts/build.sh test -p lobby-records
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded arrayvec v0.7.8
+  Downloaded block-buffer v0.10.4
+  Downloaded arrayref v0.3.9
+  Downloaded base64ct v1.8.3
+  Downloaded generic-array v0.14.7
+  Downloaded cpufeatures v0.3.0
+  Downloaded cpufeatures v0.2.17
+  Downloaded crypto-common v0.1.7
+  Downloaded curve25519-dalek-derive v0.1.1
+  Downloaded itoa v1.0.18
+  Downloaded subtle v2.6.1
+  Downloaded version_check v0.9.5
+  Downloaded hex v0.4.3
+  Downloaded cfg-if v1.0.4
+  Downloaded pkcs8 v0.10.2
+  Downloaded rand_core v0.6.4
+  Downloaded rustc_version v0.4.1
+  Downloaded constant_time_eq v0.4.2
+  Downloaded ed25519 v2.2.3
+  Downloaded quote v1.0.47
+  Downloaded find-msvc-tools v0.1.11
+  Downloaded digest v0.10.7
+  Downloaded shlex v2.0.1
+  Downloaded spki v0.7.3
+  Downloaded signature v2.2.0
+  Downloaded zeroize v1.9.0
+  Downloaded sha2 v0.10.9
+  Downloaded zmij v1.0.23
+  Downloaded const-oid v0.9.6
+  Downloaded semver v1.0.28
+  Downloaded getrandom v0.2.17
+  Downloaded serde_derive v1.0.229
+  Downloaded proc-macro2 v1.0.107
+  Downloaded serde_core v1.0.229
+  Downloaded unicode-ident v1.0.24
+  Downloaded der v0.7.10
+  Downloaded serde v1.0.229
+  Downloaded cc v1.4.3
+  Downloaded ed25519-dalek v2.2.0
+  Downloaded memchr v2.8.3
+  Downloaded blake3 v1.8.6
+  Downloaded typenum v1.20.1
+  Downloaded serde_json v1.0.151
+  Downloaded curve25519-dalek v4.1.3
+  Downloaded syn v2.0.119
+  Downloaded syn v3.0.3
+  Downloaded libc v0.2.189
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.92s
+     Running unittests src/lib.rs (/target/debug/deps/lobby_records-86a2b011693d35b3)
+
+running 7 tests
+test tests::node_id_is_the_hash_of_the_key ... ok
+test tests::domains_are_distinct_so_records_cannot_be_replayed_across_types ... ok
+test tests::preimage_ignores_the_stored_signature ... ok
+test tests::announce_hash_covers_the_signed_bytes_and_moves_with_any_change ... ok
+test tests::a_signed_record_verifies ... ok
+test tests::a_signature_from_another_key_is_refused ... ok
+test tests::mutating_any_field_breaks_the_signature ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests lobby_records
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+## command: ./scripts/build.sh test -p stoffel-lobby -- --nocapture
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded block-buffer v0.10.4
+  Downloaded arrayref v0.3.9
+  Downloaded arrayvec v0.7.8
+  Downloaded cpufeatures v0.3.0
+  Downloaded cpufeatures v0.2.17
+  Downloaded curve25519-dalek-derive v0.1.1
+  Downloaded version_check v0.9.5
+  Downloaded subtle v2.6.1
+  Downloaded cfg-if v1.0.4
+  Downloaded hex v0.4.3
+  Downloaded generic-array v0.14.7
+  Downloaded rustc_version v0.4.1
+  Downloaded itoa v1.0.18
+  Downloaded signature v2.2.0
+  Downloaded ed25519 v2.2.3
+  Downloaded digest v0.10.7
+  Downloaded shlex v2.0.1
+  Downloaded find-msvc-tools v0.1.11
+  Downloaded sha2 v0.10.9
+  Downloaded base64ct v1.8.3
+  Downloaded constant_time_eq v0.4.2
+  Downloaded crypto-common v0.1.7
+  Downloaded spki v0.7.3
+  Downloaded quote v1.0.47
+  Downloaded pkcs8 v0.10.2
+  Downloaded zmij v1.0.23
+  Downloaded const-oid v0.9.6
+  Downloaded getrandom v0.2.17
+  Downloaded rand_core v0.6.4
+  Downloaded semver v1.0.28
+  Downloaded blake3 v1.8.6
+  Downloaded zeroize v1.9.0
+  Downloaded serde_core v1.0.229
+  Downloaded proc-macro2 v1.0.107
+  Downloaded serde_derive v1.0.229
+  Downloaded unicode-ident v1.0.24
+  Downloaded der v0.7.10
+  Downloaded serde v1.0.229
+  Downloaded cc v1.4.3
+  Downloaded memchr v2.8.3
+  Downloaded ed25519-dalek v2.2.0
+  Downloaded typenum v1.20.1
+  Downloaded serde_json v1.0.151
+  Downloaded syn v3.0.3
+  Downloaded curve25519-dalek v4.1.3
+  Downloaded syn v2.0.119
+  Downloaded libc v0.2.189
+   Compiling stoffel-lobby v0.1.0 (/build/crates/lobby)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.30s
+     Running unittests src/main.rs (/target/debug/deps/stoffel_lobby-b40d01bb94d517d9)
+
+running 2 tests
+test tests::unknown_fields_are_rejected ... ok
+test tests::two_node_lifecycle_returns_a_bundle_and_rejects_a_forgery ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/http.rs (/target/debug/deps/http-9f19fab79e62b342)
+
+running 2 tests
+server stderr: stoffel lobby listening on 127.0.0.1:42423, store /tmp/lobby-http-reannounce-185-1789503278.jsonl
+server stderr: stoffel lobby listening on 127.0.0.1:37293, store /tmp/lobby-http-evidence-185-1789503278.jsonl
+POST /nodes -> 201 {"accepted":true}
+first announce pinned by the join: 432b0de5296778a32822c02c0ec74db34b938a6301d0785c460f05d56aa1d675
+POST /nodes -> 201 {"accepted":true}
+POST /jobs -> 201 {"accepted":true}
+POST /nodes -> 201 {"accepted":true}
+POST /jobs/reannounce-job/join -> 400 {"error":"node_announce_hash does not match the node's current announce"}
+POST /nodes -> 400 {"error":"signature does not verify: signature error: Verification equation was not satisfied"}
+POST /jobs/reannounce-job/join -> 201 {"accepted":true}
+POST /nodes -> 400 {"error":"signature does not verify: signature error: Verification equation was not satisfied"}
+POST /nodes -> 400 {"error":"unknown field: unexpected"}
+POST /nodes -> 400 {"error":"malformed JSON: key must be a string at line 1 column 2"}
+POST /nodes -> 201 {"accepted":true}
+re-announce hash (must NOT appear in the bundle): da850b89f8013ee64613e8aca480319bdffc14a5723d079b083fd38631959a9c
+POST /jobs -> 201 {"accepted":true}
+GET /jobs/job/bundle -> 409 {"error":"job lifecycle is incomplete"}
+POST /jobs/reannounce-job/result -> 201 {"accepted":true}
+GET /jobs/reannounce-job/bundle -> 200 {"job":{"created_at":1789503278,"entry":"main","job_id":"reannounce-job","n_parties":1,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"c00f3c04cba7451bd808951abc6fab7ed0ead350e668494e4b08bc2845f61f87dca23b097d9f87779b8112aadcf41900c
+bundle: {"job":{"created_at":1789503278,"entry":"main","job_id":"reannounce-job","n_parties":1,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"c00f3c04cba7451bd808951abc6fab7ed0ead350e668494e4b08bc2845f61f87dca23b097d9f87779b8112aadcf41900cf3f6505ce5f0327fe3044fb5ed5ff07","state":"open","threshold":0},"joins":[{"job_id":"reannounce-job","joined_at":1789503278,"node_announce_hash":"432b0de5296778a32822c02c0ec74db34b938a6301d0785c460f05d56aa1d675","node_id":"16f52d6fea63ef086405aa71b537dd4833bd0b36ffe054be0fd07fb525af157d","party_id":0,"pubkey":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"ad1c70fb6da5c7cb0d3090680f235b1964deb877488cd059222fc2cc6acbae43cd444c88f92c9bf7006a0187a33a6b15fce458ea5055d53b94e0d2df871ac606"}],"nodes":[{"announced_at":1789503278,"attestation":{"collateral_json":"{}","event_log":"first-measurement","quote_hex":"quote-one"},"endpoint":"node:8080","max_parties":2,"node_id":"16f52d6fea63ef086405aa71b537dd4833bd0b36ffe054be0fd07fb525af157d","operator_label":"evidence","pubkey":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"adbb8e4aaaad95227594966b75577f726b3f3749eeb6fbf37dc4b4082127b67e30992cd0632c8be582728929511fb50cd4a9d25f23106316b799841e57eecc04","supported_thresholds":[0]}],"results":[{"completed_at":1789503278,"job_id":"reannounce-job","node_id":"16f52d6fea63ef086405aa71b537dd4833bd0b36ffe054be0fd07fb525af157d","party_id":0,"program_id":"program","pubkey":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"6abd6e0a00eb1d7f5a3811bd97714340545a17a97325125b74f25981be989c5c384b1fb1aabf7212fc081bee211ac31ac1303dbd4958fb85ce4a98c20551040c","value":"7"}],"version":2}
+POST /jobs/job/join -> 201 {"accepted":true}
+POST /jobs/job/result -> 201 {"accepted":true}
+POST /jobs/job/join -> 201 {"accepted":true}
+bundle carries the first announce; all four signatures re-verify offline
+test http_reannounce_after_join_does_not_rewrite_the_bundle ... ok
+POST /jobs/job/result -> 201 {"accepted":true}
+GET /jobs/job/bundle -> 200 {"job":{"created_at":1789503278,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"d5197043197a29eba9f6f3303602f89160fccd5b8b08d6707cd06907dcdb97ef90cb2ff07ff25b21005b39ecfe88dd40c3281e3962a0
+bundle: {"job":{"created_at":1789503278,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"d5197043197a29eba9f6f3303602f89160fccd5b8b08d6707cd06907dcdb97ef90cb2ff07ff25b21005b39ecfe88dd40c3281e3962a009a5f1190d3e5c606e05","state":"open","threshold":0},"joins":[{"job_id":"job","joined_at":1789503278,"node_announce_hash":"3c242201789731adb2e7f13fea06969092d8418120800178696b4e89aea5cf9b","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"5f2ee815102eb46cd12795b996ffaa9b2143252208dc19989274ce9970ddeb671b58f707bb33f107bb1602c5a1419249d843e7d020e1e80354c6d74dd7d1f003"},{"job_id":"job","joined_at":1789503278,"node_announce_hash":"36c77e29e63fe4202b953fce12ba8cc952006f850ab5eb33f8829d7d6d1221bb","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"6e64894dfd91214008f17411cc084fb8095910499e5f2ae96d92ca8a84ff806867b4eb17092718a3115be1afc2448bb338dd48e8ba9304d96d32cd81c8ae8c03"}],"nodes":[{"announced_at":1789503278,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","operator_label":"evidence","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"e96a91a6f3c6ad26244353ea1c8f560850abd4101a2e61304c262edbd2dac2e0d16a0488e1fe88334dc4a82c101530c7c5edeb22473215eaf51a18041edad80e","supported_thresholds":[0]},{"announced_at":1789503278,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","operator_label":"evidence","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"dfb22e83a04ecb1c72d52ddf3a891e383c60a77907a3266a2e55dcc341ec8a6cf1191a452bb187335172c22d55f400104d65020e8437d0eb54d0055645830203","supported_thresholds":[0]}],"results":[{"completed_at":1789503278,"job_id":"job","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"program_id":"program","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"68d7528a64fb2a3f99b4899899abba136dfcb37b9837692797643fc789e8d33e1215dd9ac16174b34de5c6caa3b9774b5ea2900d9d9102406b5269d344287d0a","value":"7"},{"completed_at":1789503278,"job_id":"job","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"program_id":"program","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"ef469b58f0622eccc41a059f5e257226ec7b731b2c0861adc6b8d47e322f547535adf86486164a86ffae1ab084a34b62b118edee6ac1cf83225af12ff6be3e00","value":"7"}],"version":2}
+independent verify_signature over job + 2 nodes + 2 joins + 2 results: ok
+tampered bundle result rejected without the service: signature does not verify: signature error: Verification equation was not satisfied
+store file:
+{"kind":"node","record":{"announced_at":1789503278,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","operator_label":"evidence","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"e96a91a6f3c6ad26244353ea1c8f560850abd4101a2e61304c262edbd2dac2e0d16a0488e1fe88334dc4a82c101530c7c5edeb22473215eaf51a18041edad80e","supported_thresholds":[0]}}
+{"kind":"node","record":{"announced_at":1789503278,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","operator_label":"evidence","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"dfb22e83a04ecb1c72d52ddf3a891e383c60a77907a3266a2e55dcc341ec8a6cf1191a452bb187335172c22d55f400104d65020e8437d0eb54d0055645830203","supported_thresholds":[0]}}
+{"kind":"job","record":{"created_at":1789503278,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"d5197043197a29eba9f6f3303602f89160fccd5b8b08d6707cd06907dcdb97ef90cb2ff07ff25b21005b39ecfe88dd40c3281e3962a009a5f1190d3e5c606e05","state":"open","threshold":0}}
+{"kind":"join","record":{"job_id":"job","joined_at":1789503278,"node_announce_hash":"3c242201789731adb2e7f13fea06969092d8418120800178696b4e89aea5cf9b","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"5f2ee815102eb46cd12795b996ffaa9b2143252208dc19989274ce9970ddeb671b58f707bb33f107bb1602c5a1419249d843e7d020e1e80354c6d74dd7d1f003"}}
+{"kind":"result","record":{"completed_at":1789503278,"job_id":"job","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"program_id":"program","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"68d7528a64fb2a3f99b4899899abba136dfcb37b9837692797643fc789e8d33e1215dd9ac16174b34de5c6caa3b9774b5ea2900d9d9102406b5269d344287d0a","value":"7"}}
+{"kind":"join","record":{"job_id":"job","joined_at":1789503278,"node_announce_hash":"36c77e29e63fe4202b953fce12ba8cc952006f850ab5eb33f8829d7d6d1221bb","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"6e64894dfd91214008f17411cc084fb8095910499e5f2ae96d92ca8a84ff806867b4eb17092718a3115be1afc2448bb338dd48e8ba9304d96d32cd81c8ae8c03"}}
+{"kind":"result","record":{"completed_at":1789503278,"job_id":"job","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"program_id":"program","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"ef469b58f0622eccc41a059f5e257226ec7b731b2c0861adc6b8d47e322f547535adf86486164a86ffae1ab084a34b62b118edee6ac1cf83225af12ff6be3e00","value":"7"}}
+server stderr: stoffel lobby listening on 127.0.0.1:38581, store /tmp/lobby-http-evidence-185-1789503278.jsonl
+GET /jobs/job/bundle -> 200 {"job":{"created_at":1789503278,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"d5197043197a29eba9f6f3303602f89160fccd5b8b08d6707cd06907dcdb97ef90cb2ff07ff25b21005b39ecfe88dd40c3281e3962a0
+restart with a tampered store line -> exit Some(1), stderr: Error: "signature does not verify: signature error: Verification equation was not satisfied"
+test http_lifecycle_bundle_and_reload_transcript ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
