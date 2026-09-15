@@ -55,6 +55,32 @@ pub mod domain {
     pub const RESULT: &str = "stoffel-lobby/result/v1";
 }
 
+/// `job_id` for a job: `blake3(program_id || entry || n_parties || threshold)`, hex.
+///
+/// Exact preimage: the 32 raw bytes of `program_id` (hex-decoded — anything else
+/// is an error), the entry name's UTF-8 bytes, then `n_parties` and `threshold`
+/// as 8-byte little-endian integers. The numbers are fixed-width so the
+/// concatenation has no ambiguous split. The job id is derived, never
+/// proposer-chosen: the lobby service rejects a `JobRecord` whose `job_id`
+/// differs, and the verifier and webapp derive it the same way.
+pub fn job_id_for(
+    program_id: &str,
+    entry: &str,
+    n_parties: usize,
+    threshold: usize,
+) -> Result<DigestHex, String> {
+    let bytes: [u8; 32] = hex::decode(program_id)
+        .map_err(|e| format!("program_id is not hex: {e}"))?
+        .try_into()
+        .map_err(|_| "program_id is not 32 bytes".to_string())?;
+    let mut preimage = Vec::with_capacity(32 + entry.len() + 16);
+    preimage.extend_from_slice(&bytes);
+    preimage.extend_from_slice(entry.as_bytes());
+    preimage.extend_from_slice(&(n_parties as u64).to_le_bytes());
+    preimage.extend_from_slice(&(threshold as u64).to_le_bytes());
+    Ok(hex::encode(blake3::hash(&preimage).as_bytes()))
+}
+
 /// A record that carries its own signature.
 pub trait Signed {
     /// Domain-separation prefix for this record type.
@@ -132,7 +158,8 @@ pub enum JobState {
 /// A proposed computation. Signed by the proposer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JobRecord {
-    /// `blake3(program_id || entry || n || t)`, hex.
+    /// Derived, not proposer-chosen: see [`job_id_for`] for the exact preimage.
+    /// The lobby rejects a job whose `job_id` differs from it.
     pub job_id: DigestHex,
     /// `blake3` of the program bytecode, hex — the same id the committee agrees
     /// on when syncing a program.
@@ -372,5 +399,37 @@ mod tests {
     fn node_id_is_the_hash_of_the_key() {
         let pk = key().verifying_key().to_bytes();
         assert_eq!(node_id_for(&pk), hex::encode(blake3::hash(&pk).as_bytes()));
+    }
+
+    #[test]
+    fn job_id_matches_its_stated_preimage() {
+        // golden vector, computed by hand from the documented preimage:
+        // blake3(bytes32(blake3("stoffel")) || "main" || le64(4) || le64(1))
+        let program_id = hex::encode(blake3::hash(b"stoffel").as_bytes());
+        assert_eq!(
+            program_id,
+            "94771a24a70d20f4a5d128f336b6eb2f6a1b75cabb19310fb52d1f0026836a8a"
+        );
+        assert_eq!(
+            job_id_for(&program_id, "main", 4, 1).unwrap(),
+            "de7690ec2ef2c92949c77dc7c0565dfee97ee0373bfa4baa28cfb0546dff2b90"
+        );
+    }
+
+    #[test]
+    fn job_id_rejects_a_program_id_that_is_not_32_byte_hex() {
+        assert!(job_id_for("program", "main", 4, 1).is_err());
+        assert!(job_id_for(&"ab".repeat(31), "main", 4, 1).is_err());
+    }
+
+    #[test]
+    fn job_id_changes_with_every_preimage_component() {
+        let p = hex::encode(blake3::hash(b"p").as_bytes());
+        let q = hex::encode(blake3::hash(b"q").as_bytes());
+        let base = job_id_for(&p, "main", 4, 1).unwrap();
+        assert_ne!(job_id_for(&q, "main", 4, 1).unwrap(), base);
+        assert_ne!(job_id_for(&p, "other", 4, 1).unwrap(), base);
+        assert_ne!(job_id_for(&p, "main", 7, 1).unwrap(), base);
+        assert_ne!(job_id_for(&p, "main", 4, 0).unwrap(), base);
     }
 }
