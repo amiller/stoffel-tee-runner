@@ -1,6 +1,6 @@
 # A lobby for attested MPC committees
 
-Status: v1 service implemented, 2026-08-29. Quote verification and deployment integration remain downstream work.
+Status: v1 service + offline verifier implemented. Verifier fixtures pending a real TDX run (see below).
 
 The v1 service is now implemented as the `stoffel-lobby` binary. It listens on
 `LOBBY_ADDR` (default `127.0.0.1:8080`) and stores signed JSONL envelopes at
@@ -17,9 +17,37 @@ the `stoffel-lobby` binary (`crates/lobby/tests/http.rs`, transcript committed u
 after signing, refusal to fabricate a bundle from an incomplete lifecycle, reload of
 the store with re-verification, and rejection of a tampered store line at startup.
 The bundle the service returns is also re-verified signature-by-signature with
-`lobby-records` alone, without asking the service. There is no staging deployment or
-`stoffel-verify` binary in this repository, so quote verification and full independent
-bundle verification remain downstream work.
+`lobby-records` alone, without asking the service.
+
+## The offline verifier (`stoffel-verify`)
+
+`crates/stoffel-verify` implements §Verification end to end as a single offline
+binary: `stoffel-verify [--at <unix-secs>] <bundle.json>`, exit 0 with a verdict or
+exit 1 with a named reason. Quote verification and event-log replay are the fork's
+`verify_dstack_quote_with_registers` and `dstack_event_log::verify_event_log` — no
+second implementation exists in this repo. Collateral travels only inside the
+bundle (`AttestationBlob.collateral_json`); the binary performs no network access
+(provable with `docker run --network none`). Absent evidence (empty collateral,
+empty log, a join with no node) is an error, never a downgrade.
+
+`--at` pins the verification instant: DCAP collateral has validity windows
+(TCB info, QE identity, CRLs, certificate chains) and expiry is enforced, so
+verifying a historical bundle means pinning a time inside its window — the same
+thing the fork's own tests do. Default is the wall clock.
+
+Its fixtures live in `evidence/bundles/`: four committed negative bundles built on
+the real vendored TDX quote and its real collateral (see that directory's README
+for provenance and per-fixture expectations). Two of the six the issue asks for —
+could not be produced without hardware: `valid.json` needs a quote whose
+`report_data[8..40]` binds a key the fixture holds and whose own boot log replays
+onto its registers; both are fixed at quote-mint time inside the TEE. That is one
+real dstack run of L1-enabled code, and remains the open item for this component.
+Check-level coverage of the two missing fixtures (key-binding all-zero rejection,
+event-log replay both directions) is in `crates/stoffel-verify`'s tests on the
+same real materials.
+
+There is no staging deployment for the lobby itself; deployment integration
+remains downstream work.
 
 ## The problem, stated from what exists
 
