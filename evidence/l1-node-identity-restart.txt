@@ -1,0 +1,89 @@
+# L1 — durable node identity: local docker restart transcript
+# host         zed, docker 27.x, debian:bookworm-slim runtime containers
+# binary       stoffel-run (debug) built from StoffelVM ready-3 @ c5ef97c
+#              (CC=clang, memory-capped container per scripts/agent-build.sh;
+#               this host's kernel has no CPU CFS quota, so the cap is
+#               --memory=8g + CARGO_BUILD_JOBS=2)
+# captured     2026-09-15T15:27Z
+#
+# The node is the real stoffel-run binary, run bootnode-role exactly as
+# docker/entrypoint.sh launches it on the pod (--bootnode --bind :9000
+# --n-parties 4), with a named docker volume at /data — the same mount the
+# w7 deploy scripts now give every node. STOFFEL_ATTESTATION_MODE is unset
+# (= disabled): zed has no TEE, so quote minting is a pod-only claim and is
+# NOT asserted here.
+
+### run 1 — first start with an empty /data volume
+$ docker run -d --name l1-run1 -p 18090:8090 \
+    -v stoffel-l1-data:/data \
+    -v <stoffel-run>:/app/stoffel-run:ro \
+    -e STOFFEL_AUTH_TOKEN=… -e STOFFEL_HTTP_ADDR=0.0.0.0:8090 \
+    --entrypoint /app/stoffel-run debian:bookworm-slim \
+    --bootnode --bind 0.0.0.0:9000 --n-parties 4
+
+  container log:
+  [node-key] generated long-term identity db0360ddf1f860c374353bf3c63189ec77b71291d9cbd12f6f7abf89ffd4be5e at "/data/stoffel-node.key"
+  [http] spawning observability server on http://0.0.0.0:8090 (GET /health, GET /attestation)
+
+  GET /health      {"party_id":null,"role":"bootnode","status":"ok"}
+  GET /attestation {"attestation_mode":"disabled",
+                    "node_id":"db0360ddf1f860c374353bf3c63189ec77b71291d9cbd12f6f7abf89ffd4be5e",
+                    "pubkey":"0cab7879f10ec47586ca7b429de8ad310ad25e5097cd7b914c55261483e8f723"}
+
+  /data inside the container:
+  -rw------- 1 root root 32 Sep 15 15:27 stoffel-node.key     # 0600, exactly 32 seed bytes
+  sha256(/data/stoffel-node.key) = 99ba322d801a114bd28b7ba94dc545a5672d6e7dfc75f31e408fdb16756e805b
+
+### run 2 — container killed (docker rm -f), fresh container, SAME /data volume
+$ docker rm -f l1-run1 && docker run -d --name l1-run2 … (identical command)
+
+  GET /attestation {"attestation_mode":"disabled",
+                    "node_id":"db0360ddf1f860c374353bf3c63189ec77b71291d9cbd12f6f7abf89ffd4be5e",
+                    "pubkey":"0cab7879f10ec47586ca7b429de8ad310ad25e5097cd7b914c55261483e8f723"}
+
+  node_id:  UNCHANGED across the restart        (db0360dd…4be5e == db0360dd…4be5e)
+  pubkey:   UNCHANGED across the restart        (0cab7879…f723  == 0cab7879…f723)
+  key file: sha256 UNCHANGED                    (99ba322d…e805b == 99ba322d…e805b)
+
+### node_id == hex(blake3(pubkey)), recomputed OUTSIDE the node
+$ cargo run --quiet -- 0cab7879f10ec47586ca7b429de8ad310ad25e5097cd7b914c55261483e8f723
+  db0360ddf1f860c374353bf3c63189ec77b71291d9cbd12f6f7abf89ffd4be5e
+
+  (standalone blake3 crate, 5-line program — matches GET /attestation's node_id
+   and lobby_records::node_id_for(pubkey); the lobby contract is also pinned by
+   lobby-records' own unit test node_id_for_is_blake3.)
+
+### no durable storage — no identity, and NO throwaway key
+$ docker run --rm … (no /data volume) --bootnode …
+  [node-key] no durable storage at "/data/stoffel-node.key": no long-term identity (mount /data or set STOFFEL_NODE_KEY_PATH)
+  # /attestation then reports no node_id/pubkey fields at all; in
+  # STOFFEL_ATTESTATION_MODE=dstack this is FATAL (exit 13) — a quote binding
+  # would be bound to a throwaway key, faking a durable identity.
+
+### corrupt key file — fatal, never a silent regeneration
+$ printf abcdefg > /data/stoffel-node.key && docker run --rm … --bootnode …
+  FATAL: node key "/data/stoffel-node.key" must hold exactly 32 seed bytes, found 7
+  exit=13
+  # the 7-byte file is left exactly as it was — not overwritten
+
+### report_data[8..40] quote binding — pod-only claim, pinned by tests
+# A fresh hardware quote binding blake3(pubkey) at [8..40] (with [0..8] still
+# the LE tls_derived_id) can only be minted inside a TDX CVM; zed has none and
+# the pod deploy needs operator credentials, so it is NOT claimed here. What is
+# pinned in the fork's test suite (cargo test -p stoffel-vm attestation, both
+# feature sets):
+#   - report_data layout: [0..8] LE tls id, [8..40] blake3(pubkey), [40..64] zero
+#   - verify_dstack_quote_with_registers extracts [8..40] as the node-key binding
+#   - the vendored REAL Intel TDX quote (minted pre-L1 by a pre-0.4 dstack whose
+#     report_data is a hash of the request, so [8..40] is non-zero digest bytes)
+#     is now REFUSED with MissingNodePubKey — the honest L1 outcome for a quote
+#     that binds bytes at [8..40] while presenting no pubkey
+#   - mock-level: binding match ADMITS, mismatch → PubKeyBindingMismatch,
+#     tampering the binding breaks the quote MAC
+#
+# Pod caveat for the re-run: if the pod's dstack predates verbatim report_data
+# (pre-0.4), an L1 node's binding at [8..40] would be overwritten by the
+# platform and admission would fail LOUDLY (PubKeyBindingMismatch) — not
+# silently. The w7 pod's August runs prove its dstack passes [0..8] verbatim
+# (four parties admitted with report_data[0..8] == their real tls_derived_id),
+# so [8..40] is expected to pass through the same way; verify on the re-run.

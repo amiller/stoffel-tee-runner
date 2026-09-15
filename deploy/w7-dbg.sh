@@ -8,6 +8,7 @@ NP='"NO_PROXY":"pccs.phala.network,api.trustedservices.intel.com","no_proxy":"pc
 curl -sm 90 -X POST "$WEBHOST_STAGING/_api/projects" -H "Authorization: Bearer $TEE_DAEMON_TOKEN" \
  -H "Content-Type: application/json" -d "{\"name\":\"stoffel-p0\",\"runtime\":\"image\",\"mode\":\"attested\",
   \"image\":\"$IMAGE\",\"image_port\":8090,\"egress\":true,
+  \"volumes\":[{\"name\":\"stoffel-p0-data\",\"mount\":\"/data\"}],
   \"env\":{\"STOFFEL_ROLE\":\"party\",\"STOFFEL_PARTY_ID\":\"0\",\"STOFFEL_BIND_ADDR\":\"0.0.0.0:9000\",
    \"STOFFEL_BOOTSTRAP_ADDR\":\"tee-image-stoffel-node-attested:9000\",
    \"STOFFEL_ADVERTISE_HOST\":\"tee-image-stoffel-p0-attested\",
