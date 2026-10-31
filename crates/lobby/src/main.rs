@@ -28,7 +28,7 @@ fn strict<T: DeserializeOwned>(value: Value, keys: &[&str]) -> Result<T, String>
     serde_json::from_value(Value::Object(object.clone())).map_err(|e| format!("malformed record: {e}"))
 }
 
-const NODE_KEYS: &[&str] = &["node_id","pubkey","endpoint","max_parties","supported_thresholds","operator_label","attestation","announced_at","signature"];
+const NODE_KEYS: &[&str] = &["node_id","pubkey","endpoint","max_parties","supported_thresholds","operator_label","attestation","measurement","announced_at","signature"];
 const JOB_KEYS: &[&str] = &["job_id","program_id","program_url","entry","n_parties","threshold","policy","not_before","state","proposer","created_at","signature"];
 const JOIN_KEYS: &[&str] = &["job_id","node_id","pubkey","party_id","joined_at","signature"];
 const RESULT_KEYS: &[&str] = &["job_id","node_id","pubkey","party_id","value","program_id","completed_at","signature"];
@@ -71,6 +71,7 @@ fn post(s: &mut Store, path: &str, body: Value) -> Response {
         "/nodes" => {
             let r: NodeRecord = match strict(body, NODE_KEYS).and_then(|r| { authorized(&r)?; Ok(r) }) { Ok(r) => r, Err(e) => return bad(e) };
             let pk = match hex::decode(&r.pubkey).ok().and_then(|b| <[u8;32]>::try_from(b).ok()) { Some(pk) => pk, None => return bad("pubkey is not 32-byte hex") };
+            if hex::decode(&r.measurement).map(|b| b.len()) != Ok(32) { return bad("measurement is not 32-byte hex"); }
             if lobby_records::node_id_for(&pk) != r.node_id { return bad("node_id does not match pubkey"); }
             if r.max_parties == 0 || r.supported_thresholds.iter().any(|t| 3 * t + 1 > r.max_parties) { return bad("invalid node capabilities"); }
             if let Some(old) = latest_node(s, &r.node_id) { if old.pubkey != r.pubkey { return bad("node identity is bound to another key"); } }
@@ -126,26 +127,27 @@ impl Response {
     }
 }
 
-fn query(path: &str) -> (&str, Vec<(&str, &str)>) {
+fn query(path: &str) -> Result<(&str, Vec<(&str, &str)>), String> {
     let mut parts = path.splitn(2, '?'); let route = parts.next().unwrap_or("");
-    let params = parts.next().unwrap_or("").split('&').filter_map(|p| p.split_once('=')).collect(); (route, params)
+    let params = parts.next().unwrap_or("");
+    let pairs = params.split('&').filter(|p| !p.is_empty()).map(|p| p.split_once('=').ok_or_else(|| format!("query parameter without '=': {p}"))).collect::<Result<Vec<_>, _>>()?;
+    Ok((route, pairs))
 }
 fn param<'a>(params: &'a [(&str, &str)], key: &str) -> Option<&'a str> { params.iter().find(|(k, _)| *k == key).map(|(_, v)| *v) }
 
 fn get(s: &Store, raw_path: &str) -> Response {
-    let (path, params) = query(raw_path);
+    let (path, params) = match query(raw_path) { Ok(x) => x, Err(e) => return bad(e) };
     if let Some(id) = path.strip_prefix("/jobs/").and_then(|x| x.strip_suffix("/bundle")) { return bundle(s, id); }
     match path {
         "/nodes" => {
-            let measurement = param(&params, "measurement");
-            let freshness = param(&params, "freshness").and_then(|x| x.parse::<u64>().ok());
-            let cutoff = freshness.map(|f| now().saturating_sub(f));
-            let mut seen = HashSet::new(); let nodes: Vec<_> = s.nodes.iter().rev().filter(|n| seen.insert(n.node_id.clone())).filter(|n| cutoff.map_or(true, |c| n.announced_at >= c)).filter(|n| measurement.map_or(true, |m| n.attestation.event_log.contains(m) || n.attestation.quote_hex.contains(m))).cloned().collect();
+            let measurement = match param(&params, "measurement") { None => None, Some(m) => { if hex::decode(m).map(|b| b.len()) != Ok(32) { return bad(format!("measurement is not 64 hex chars: {m}")); } Some(m) } };
+            let cutoff = match param(&params, "freshness") { None => None, Some(f) => match f.parse::<u64>() { Ok(f) => Some(now().saturating_sub(f)), Err(_) => return bad(format!("freshness is not a u64: {f}")) } };
+            let mut seen = HashSet::new(); let nodes: Vec<_> = s.nodes.iter().rev().filter(|n| seen.insert(n.node_id.clone())).filter(|n| cutoff.map_or(true, |c| n.announced_at >= c)).filter(|n| measurement.map_or(true, |m| n.measurement == m)).cloned().collect();
             Response::json(200, serde_json::to_value(nodes).unwrap())
         }
         "/jobs" => {
-            let state = param(&params, "state");
-            let mut seen = HashSet::new(); let jobs: Vec<_> = s.jobs.iter().rev().filter(|j| seen.insert(j.job_id.clone())).filter(|j| state.map_or(true, |x| serde_json::to_string(&j.state).unwrap().trim_matches('"').eq_ignore_ascii_case(x))).cloned().collect();
+            let state = match param(&params, "state") { None => None, Some(x) => match serde_json::from_value::<JobState>(Value::String(x.to_ascii_lowercase())) { Ok(st) => Some(st), Err(_) => return bad(format!("state is not a JobState: {x}")) } };
+            let mut seen = HashSet::new(); let jobs: Vec<_> = s.jobs.iter().rev().filter(|j| seen.insert(j.job_id.clone())).filter(|j| state.map_or(true, |st| j.state == st)).cloned().collect();
             Response::json(200, serde_json::to_value(jobs).unwrap())
         }
         _ => Response::json(404, json!({"error":"not found"})),
@@ -162,13 +164,17 @@ fn handle(mut stream: TcpStream, store: Shared) {
         if bytes.len() > 1024 * 1024 { let _ = bad("request headers too large").send(stream); return; }
     }
     let header = String::from_utf8_lossy(&bytes[..header_end]);
-    let content_length = header.lines().find_map(|line| line.strip_prefix("Content-Length:").or_else(|| line.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok())).unwrap_or(0);
+    let raw_len = header.lines().find_map(|line| { let (k, v) = line.split_once(':')?; k.trim().eq_ignore_ascii_case("content-length").then(|| v.trim()) });
+    let content_length = match raw_len {
+        Some(v) => match v.parse::<usize>() { Ok(n) => n, Err(_) => { let _ = bad(format!("unparsable Content-Length: {v}")).send(stream); return; } },
+        None => { let _ = bad("request has no Content-Length header").send(stream); return; }
+    };
     while bytes.len() < header_end + content_length { let n = match stream.read(&mut chunk) { Ok(n) => n, Err(_) => return }; if n == 0 { return; } bytes.extend_from_slice(&chunk[..n]); }
     let request = String::from_utf8_lossy(&bytes[..header_end + content_length]); let mut lines = request.split("\r\n");
     let first = match lines.next() { Some(x) => x, None => return };
     let mut first_parts = first.split_whitespace(); let method = first_parts.next().unwrap_or(""); let path = first_parts.next().unwrap_or("");
     let body = request.split("\r\n\r\n").nth(1).unwrap_or("");
-    let response = match store.lock() { Ok(mut s) => match method { "GET" => get(&s, path), "POST" => match serde_json::from_str(body) { Ok(v) => post(&mut s, query(path).0, v), Err(e) => bad(format!("malformed JSON: {e}")) }, _ => Response::json(400, json!({"error":"method not supported"})) }, Err(_) => Response::json(500, json!({"error":"store lock failed"})) };
+    let response = match store.lock() { Ok(mut s) => match method { "GET" => get(&s, path), "POST" => match query(path) { Ok((route, _)) => match serde_json::from_str(body) { Ok(v) => post(&mut s, route, v), Err(e) => bad(format!("malformed JSON: {e}")) }, Err(e) => bad(e) }, _ => Response::json(400, json!({"error":"method not supported"})) }, Err(_) => Response::json(500, json!({"error":"store lock failed"})) };
     let _ = response.send(stream);
 }
 
@@ -191,7 +197,7 @@ mod tests {
     fn store() -> Store { Store { path: env::temp_dir().join(format!("stoffel-lobby-test-{}-{}.jsonl", std::process::id(), now())), ..Default::default() } }
     fn node(key: &SigningKey) -> NodeRecord {
         let pk = key.verifying_key().to_bytes();
-        NodeRecord { node_id: node_id_for(&pk), pubkey: hex::encode(pk), endpoint: "node:8080".into(), max_parties: 2, supported_thresholds: vec![0], operator_label: "test".into(), attestation: AttestationBlob { quote_hex: "quote".into(), collateral_json: "{}".into(), event_log: "measurement".into() }, announced_at: now(), signature: String::new() }
+        NodeRecord { node_id: node_id_for(&pk), pubkey: hex::encode(pk), endpoint: "node:8080".into(), max_parties: 2, supported_thresholds: vec![0], operator_label: "test".into(), attestation: AttestationBlob { quote_hex: "quote".into(), collateral_json: "{}".into(), event_log: "measurement".into() }, measurement: "ab".repeat(32), announced_at: now(), signature: String::new() }
     }
     fn post_record<T: serde::Serialize>(s: &mut Store, path: &str, record: &T) -> Response { post(s, path, serde_json::to_value(record).unwrap()) }
 

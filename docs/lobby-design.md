@@ -10,6 +10,14 @@ references; it does not verify TDX quotes or claim a verifier verdict. Run it wi
 dstack tenant's proxied port. The JSONL file should be on durable, access-controlled
 storage and backed up as an append-only artifact.
 
+`GET /nodes` filters by `?measurement=<hex>` (exact equality on the signed
+`measurement` field), by `?freshness=<u64 seconds>` and, on `GET /jobs`, by
+`?state=<JobState>`. Malformed query input is refused with 400 naming the
+parameter — a pair without `=`, a `measurement` that is not 64 hex chars, a
+`freshness` that is not a `u64`, a `state` that is not a `JobState`. A request
+without a parseable `Content-Length` header (matched case-insensitively) is
+also a 400; it is never silently read as `0`.
+
 The repository's code-level evidence is Tier 1: the tests exercise the full two-node
 announce → propose → join → result → bundle lifecycle over a real HTTP socket against
 the `stoffel-lobby` binary (`crates/lobby/tests/http.rs`, transcript committed under
@@ -73,6 +81,8 @@ Four record types, each signed, each self-contained enough to verify offline.
 node_id       = hash(long_term_pubkey)
 endpoint      how to reach it
 capabilities  max n, supported t, backends
+measurement   hex blake3(mr_td||rtmr0..2), the digest JobPolicy pins — signed,
+              but readers re-derive it from the quote rather than trust it
 attestation   quote + DCAP collateral + RTMR event log
 heartbeat     last seen
 ```

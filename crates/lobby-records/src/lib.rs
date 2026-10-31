@@ -98,6 +98,12 @@ pub struct NodeRecord {
     pub operator_label: String,
     /// Evidence that this node is what it says it is.
     pub attestation: AttestationBlob,
+    /// Hex `blake3(mr_td||rtmr0..2)` over the attestation quote's boot
+    /// registers — the same digest `JobPolicy::allowed_measurements` pins and
+    /// the admission gate checks. Signed like every other field; readers are
+    /// expected to re-derive it from `attestation.quote_hex` rather than trust
+    /// this copy (see `deploy/measurement_from_quote.py` for the digest).
+    pub measurement: DigestHex,
     /// Unix seconds. Announce/heartbeat time, per the node's own clock.
     pub announced_at: u64,
     pub signature: SigHex,
@@ -200,7 +206,11 @@ pub struct EvidenceBundle {
 }
 
 /// Current bundle schema version.
-pub const BUNDLE_VERSION: u32 = 1;
+///
+/// v2: `NodeRecord` gained the required signed `measurement` field; v1
+/// records without it no longer deserialize, so consumers can tell the two
+/// apart by `bundle.version`.
+pub const BUNDLE_VERSION: u32 = 2;
 
 macro_rules! impl_signed {
     ($t:ty, $d:expr, $signer:ident) => {
@@ -366,6 +376,28 @@ mod tests {
         a.signature = "ff".repeat(64);
         let after = signing_preimage(&a).unwrap();
         assert_eq!(before, after, "preimage must not depend on the signature");
+    }
+
+    #[test]
+    fn node_measurement_is_signed() {
+        let k = key();
+        let pk = k.verifying_key().to_bytes();
+        let mut n = NodeRecord {
+            node_id: node_id_for(&pk),
+            pubkey: hex::encode(pk),
+            endpoint: "node:8080".into(),
+            max_parties: 4,
+            supported_thresholds: vec![1],
+            operator_label: "test".into(),
+            measurement: "ab".repeat(32),
+            attestation: AttestationBlob { quote_hex: "quote".into(), collateral_json: "{}".into(), event_log: "log".into() },
+            announced_at: 1786836064,
+            signature: String::new(),
+        };
+        sign_record(&mut n, &k).unwrap();
+        verify_signature(&n).unwrap();
+        n.measurement = "cd".repeat(32);
+        assert!(verify_signature(&n).is_err(), "measurement change was not caught");
     }
 
     #[test]

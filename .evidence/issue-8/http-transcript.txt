@@ -1,0 +1,122 @@
+# stoffel-lobby HTTP transcript — evidence for issue #8 acceptance
+
+Tier 1, code-level (this repo has no staging deployment). The tests drive the real
+`stoffel-lobby` binary over HTTP from a separate process, in the rust:1-bookworm
+container that built it.
+
+- date (UTC): 2026-09-15T18:55:06Z
+- branch: ready-8, parent commit: 0f2fbcdb68d677b73171384241d1195084b00c83
+- container: rust:1-bookworm, memory-capped at 6g
+- command: cargo test -p stoffel-lobby --test http -- --nocapture
+  (the issue asks for `./scripts/build.sh test -p lobby`; this host's kernel rejects
+  docker's `--cpus` CFS quota, so scripts/build.sh cannot start here, and the workspace
+  package is named stoffel-lobby, not lobby. The run above is the same container,
+-v flags and `--memory=6g` cap as build.sh, minus the unsupported `--cpus`.)
+
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded arrayref v0.3.9
+  Downloaded arrayvec v0.7.8
+  Downloaded block-buffer v0.10.4
+  Downloaded base64ct v1.8.3
+  Downloaded crypto-common v0.1.7
+  Downloaded cpufeatures v0.3.0
+  Downloaded cpufeatures v0.2.17
+  Downloaded curve25519-dalek-derive v0.1.1
+  Downloaded version_check v0.9.5
+  Downloaded rustc_version v0.4.1
+  Downloaded itoa v1.0.18
+  Downloaded generic-array v0.14.7
+  Downloaded hex v0.4.3
+  Downloaded signature v2.2.0
+  Downloaded cfg-if v1.0.4
+  Downloaded ed25519 v2.2.3
+  Downloaded constant_time_eq v0.4.2
+  Downloaded digest v0.10.7
+  Downloaded subtle v2.6.1
+  Downloaded sha2 v0.10.9
+  Downloaded shlex v2.0.1
+  Downloaded spki v0.7.3
+  Downloaded find-msvc-tools v0.1.11
+  Downloaded rand_core v0.6.4
+  Downloaded zeroize v1.9.0
+  Downloaded zmij v1.0.23
+  Downloaded pkcs8 v0.10.2
+  Downloaded quote v1.0.47
+  Downloaded const-oid v0.9.6
+  Downloaded getrandom v0.2.17
+  Downloaded semver v1.0.28
+  Downloaded serde_core v1.0.229
+  Downloaded serde_derive v1.0.229
+  Downloaded unicode-ident v1.0.24
+  Downloaded proc-macro2 v1.0.107
+  Downloaded ed25519-dalek v2.2.0
+  Downloaded serde v1.0.229
+  Downloaded der v0.7.10
+  Downloaded memchr v2.8.3
+  Downloaded cc v1.4.3
+  Downloaded blake3 v1.8.6
+  Downloaded typenum v1.20.1
+  Downloaded serde_json v1.0.151
+  Downloaded curve25519-dalek v4.1.3
+  Downloaded syn v2.0.119
+  Downloaded syn v3.0.3
+  Downloaded libc v0.2.189
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.94s
+     Running tests/http.rs (/target/debug/deps/http-9f19fab79e62b342)
+
+running 3 tests
+server stderr: stoffel lobby listening on 127.0.0.1:41911, store /tmp/lobby-http-evidence-20-1789498490.jsonl
+raw request -> []
+GET with CONTENT-LENGTH: 0 -> 200 []
+raw request -> {"error":"request has no Content-Length header"}
+GET without Content-Length -> 400 {"error":"request has no Content-Length header"}
+raw request -> {"error":"unparsable Content-Length: many"}
+GET with Content-Length: many -> 400 {"error":"unparsable Content-Length: many"}
+test content_length_header_transcript ... ok
+POST /nodes -> 201 {"accepted":true}
+POST /nodes -> 201 {"accepted":true}
+POST /nodes -> 201 {"accepted":true}
+GET /nodes?measurement=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -> 200 [{"announced_at":1789498490,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"measurement":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","operator_label":"evidence","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf374
+GET /nodes?measurement=5555555555555555555555555555555555555555555555555555555555555555 -> 200 [{"announced_at":1789498490,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"measurement":"5555555555555555555555555555555555555555555555555555555555555555","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","operator_label":"evidence","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df6
+GET /nodes?measurement=aa -> 400 {"error":"measurement is not 64 hex chars: aa"}
+GET /nodes?measurement=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz -> 400 {"error":"measurement is not 64 hex chars: zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"}
+GET /nodes?freshness=soon -> 400 {"error":"freshness is not a u64: soon"}
+GET /jobs?state=running-behind -> 400 {"error":"state is not a JobState: running-behind"}
+GET /nodes?measurement -> 400 {"error":"query parameter without '=': measurement"}
+GET /nodes?freshness=5&measurement -> 400 {"error":"query parameter without '=': measurement"}
+GET /nodes?freshness=60 -> 200 [{"announced_at":1789498490,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"measurement":"5555555555555555555555555555555555555555555555555555555555555555","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","operator_label":"evidence","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df6
+GET /nodes?measurement=zz -> 400 {"error":"measurement is not 64 hex chars: zz"}
+POST /nodes -> 201 {"accepted":true}
+GET /jobs?state=open -> 200 []
+POST /nodes?measurement -> 400 {"error":"query parameter without '=': measurement"}
+test measurement_filter_and_query_validation_transcript ... ok
+POST /nodes -> 400 {"error":"signature does not verify: signature error: Verification equation was not satisfied"}
+POST /nodes -> 400 {"error":"signature does not verify: signature error: Verification equation was not satisfied"}
+POST /nodes -> 400 {"error":"unknown field: unexpected"}
+POST /nodes -> 400 {"error":"malformed JSON: key must be a string at line 1 column 2"}
+POST /jobs -> 201 {"accepted":true}
+GET /jobs/job/bundle -> 409 {"error":"job lifecycle is incomplete"}
+POST /jobs/job/join -> 201 {"accepted":true}
+POST /jobs/job/result -> 201 {"accepted":true}
+POST /jobs/job/join -> 201 {"accepted":true}
+POST /jobs/job/result -> 201 {"accepted":true}
+GET /jobs/job/bundle -> 200 {"job":{"created_at":1789498491,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"5493185eedbc7df07b4685944eb45e1de394c076488102d8d018b6b11d8689a9b98d8f3e81b9e54f47e7fee79a28ea539853683f45cd
+bundle: {"job":{"created_at":1789498491,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"5493185eedbc7df07b4685944eb45e1de394c076488102d8d018b6b11d8689a9b98d8f3e81b9e54f47e7fee79a28ea539853683f45cd6ccb578280611203550a","state":"open","threshold":0},"joins":[{"job_id":"job","joined_at":1789498491,"node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"00b257861feaa97798b778f6d8d53539009114c9a31d14509768a0066596c06df31b7b8cd5b10000adb15ebdc411962d6d2c62b434de3a22056547e8658ef20c"},{"job_id":"job","joined_at":1789498491,"node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"a9f584959384f136fc2eb730595dbcbbde3142ad188fe92025e44c1ecf9a4ff0f2b47378ed7186b9a4c3ca65f5bc31db2ca9312ad54333f41b510df23455560e"}],"nodes":[{"announced_at":1789498490,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"measurement":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","operator_label":"evidence","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"ad0d34af01dc9e3ba77877ff57cbc6522439558c040f8d95600ec05257787ff474e11ec9e58667c747ba8ebcab3a68f78d33ac88754306f58e99b5d09652cb08","supported_thresholds":[0]},{"announced_at":1789498490,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"measurement":"5555555555555555555555555555555555555555555555555555555555555555","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","operator_label":"evidence","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"a72071a76e3de8bb9896a10dc42aafe7c300b89bbdda8b1f8a1e217833977f29ddbbbb8398db5489572b29813c3045c042e2c3fe286771748095e3ff660f930e","supported_thresholds":[0]}],"results":[{"completed_at":1789498491,"job_id":"job","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"program_id":"program","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"5c3636fdd0e20ff254d84e8e7392366a71347b86e262ef2215c80aedd4846e9b704a70fe9fd3c0e22a660e351e45a2433cdf9e7e28c427661b881e53cae2bd0c","value":"7"},{"completed_at":1789498491,"job_id":"job","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"program_id":"program","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"b45af8a28b4936e8875349338962ca0d73b5fdb7ed6ec69c5deba4cb5ca084f80492fb666d0fcd647f0c1b5ef44a28a9b6112d364518ca62e2555ce1ad8fa80a","value":"7"}],"version":2}
+independent verify_signature over job + 2 nodes + 2 joins + 2 results: ok
+tampered bundle result rejected without the service: signature does not verify: signature error: Verification equation was not satisfied
+store file:
+{"kind":"node","record":{"announced_at":1789498490,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"measurement":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","operator_label":"evidence","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"ad0d34af01dc9e3ba77877ff57cbc6522439558c040f8d95600ec05257787ff474e11ec9e58667c747ba8ebcab3a68f78d33ac88754306f58e99b5d09652cb08","supported_thresholds":[0]}}
+{"kind":"node","record":{"announced_at":1789498490,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"measurement":"5555555555555555555555555555555555555555555555555555555555555555","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","operator_label":"evidence","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"a72071a76e3de8bb9896a10dc42aafe7c300b89bbdda8b1f8a1e217833977f29ddbbbb8398db5489572b29813c3045c042e2c3fe286771748095e3ff660f930e","supported_thresholds":[0]}}
+{"kind":"job","record":{"created_at":1789498491,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"5493185eedbc7df07b4685944eb45e1de394c076488102d8d018b6b11d8689a9b98d8f3e81b9e54f47e7fee79a28ea539853683f45cd6ccb578280611203550a","state":"open","threshold":0}}
+{"kind":"join","record":{"job_id":"job","joined_at":1789498491,"node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"00b257861feaa97798b778f6d8d53539009114c9a31d14509768a0066596c06df31b7b8cd5b10000adb15ebdc411962d6d2c62b434de3a22056547e8658ef20c"}}
+{"kind":"result","record":{"completed_at":1789498491,"job_id":"job","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"program_id":"program","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"5c3636fdd0e20ff254d84e8e7392366a71347b86e262ef2215c80aedd4846e9b704a70fe9fd3c0e22a660e351e45a2433cdf9e7e28c427661b881e53cae2bd0c","value":"7"}}
+{"kind":"join","record":{"job_id":"job","joined_at":1789498491,"node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"a9f584959384f136fc2eb730595dbcbbde3142ad188fe92025e44c1ecf9a4ff0f2b47378ed7186b9a4c3ca65f5bc31db2ca9312ad54333f41b510df23455560e"}}
+{"kind":"result","record":{"completed_at":1789498491,"job_id":"job","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"program_id":"program","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"b45af8a28b4936e8875349338962ca0d73b5fdb7ed6ec69c5deba4cb5ca084f80492fb666d0fcd647f0c1b5ef44a28a9b6112d364518ca62e2555ce1ad8fa80a","value":"7"}}
+server stderr: stoffel lobby listening on 127.0.0.1:36291, store /tmp/lobby-http-evidence-20-1789498490.jsonl
+GET /jobs/job/bundle -> 200 {"job":{"created_at":1789498491,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"5493185eedbc7df07b4685944eb45e1de394c076488102d8d018b6b11d8689a9b98d8f3e81b9e54f47e7fee79a28ea539853683f45cd
+restart with a tampered store line -> exit Some(1), stderr: Error: "signature does not verify: signature error: Verification equation was not satisfied"
+test http_lifecycle_bundle_and_reload_transcript ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
