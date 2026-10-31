@@ -1,0 +1,107 @@
+# stoffel-lobby HTTP transcript — evidence for issue #7 acceptance
+
+Tier 1, code-level (this repo has no staging deployment). The test drives the real
+`stoffel-lobby` binary over HTTP from a separate process, in the same container that
+built it. What this transcript shows, for the three acceptance bullets:
+
+- `GET /jobs/disagree/bundle -> 200` with both `ResultRecord`s present, values "7" and
+  "9" — the disagreeing bundle is served, not 409'd.
+- `GET /jobs/partial/bundle -> 200` with one join, one node, zero results — an
+  incomplete lifecycle is served as-is.
+- `GET /jobs/job/bundle -> 200` mid-lifecycle with zero joins/results (first test), and
+  the completed agreeing lifecycle still 200 after restart.
+- `GET /jobs/unknown/bundle -> 404 {"error":"unknown job"}` — 404 is now the only
+  non-200 bundle answer.
+
+Two host deviations from the acceptance's literal command, both recorded here because
+the transcript should not claim a command that was not run:
+
+- `./scripts/build.sh test -p lobby` was invoked verbatim first; cargo errors
+  `package ID specification 'lobby' did not match any packages` because the crate is
+  named `stoffel-lobby` (crates/lobby/Cargo.toml). The run below is
+  `cargo test -p stoffel-lobby -- --nocapture`.
+- The build.sh container invocation drops `--cpus=2`: this host's rootless docker
+  kernel has no CPU CFS quota (`NanoCPUs can not be set...`). The `--memory=6g` cap
+  — the reason build.sh exists — is kept, same image, same CARGO_TARGET_DIR layout.
+  PR #12 recorded the same limitation on this host.
+
+- date (UTC): 2026-09-15T18:13:04Z
+- branch: ready-7, parent commit: 0f2fbcdb68d677b73171384241d1195084b00c83 (origin/main)
+- image: sha256:a3535ab419a167bf1c5acc0ea5d536c358152a9fb8dd8504068ef24bb0f4a1f1
+- command: docker run --rm --memory=6g -e CARGO_TARGET_DIR=/target -v <repo>:/build
+  -v ~/cargo-targets/stoffel-tee-runner:/target -w /build --entrypoint /bin/bash
+  rust:1-bookworm -c "cargo test -p stoffel-lobby -- --nocapture"
+- result: 4 passed (2 unit + 2 integration), 0 failed
+
+---
+
+    Updating crates.io index
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.70s
+     Running unittests src/main.rs (/target/debug/deps/stoffel_lobby-b40d01bb94d517d9)
+
+running 2 tests
+test tests::unknown_fields_are_rejected ... ok
+test tests::two_node_lifecycle_returns_a_bundle_and_rejects_a_forgery ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/http.rs (/target/debug/deps/http-9f19fab79e62b342)
+
+running 2 tests
+server stderr: stoffel lobby listening on 127.0.0.1:46017, store /tmp/lobby-http-evidence-529-1789495961.jsonl
+POST /nodes -> 201 {"accepted":true}
+POST /nodes -> 201 {"accepted":true}
+POST /nodes -> 201 {"accepted":true}
+POST /nodes -> 201 {"accepted":true}
+POST /nodes -> 400 {"error":"signature does not verify: signature error: Verification equation was not satisfied"}
+POST /jobs -> 201 {"accepted":true}
+POST /nodes -> 400 {"error":"signature does not verify: signature error: Verification equation was not satisfied"}
+POST /nodes -> 400 {"error":"unknown field: unexpected"}
+POST /nodes -> 400 {"error":"malformed JSON: key must be a string at line 1 column 2"}
+POST /jobs/disagree/join -> 201 {"accepted":true}
+POST /jobs -> 201 {"accepted":true}
+GET /jobs/job/bundle -> 200 {"job":{"created_at":1789495961,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"6e7f26ff1b0417f900c50b1757003d4caa57ad5577de3148599e10b117b296482d69cfb3c51423641a61a388f2c91225a054774f19d3
+POST /jobs/disagree/result -> 201 {"accepted":true}
+POST /jobs/job/join -> 201 {"accepted":true}
+POST /jobs/disagree/join -> 201 {"accepted":true}
+POST /jobs/job/result -> 201 {"accepted":true}
+POST /jobs/disagree/result -> 201 {"accepted":true}
+GET /jobs/disagree/bundle -> 200 {"job":{"created_at":1789495961,"entry":"main","job_id":"disagree","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"f80a0316bbb8ac0cd8af240bb84eda23a786674e731dd04b3c3854490e9aef04b40946870ce0c57d50d565d0e6e9e64738b09e5
+disagreeing bundle: {"job":{"created_at":1789495961,"entry":"main","job_id":"disagree","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"f80a0316bbb8ac0cd8af240bb84eda23a786674e731dd04b3c3854490e9aef04b40946870ce0c57d50d565d0e6e9e64738b09e54152ca2d5789add3312e1b80a","state":"open","threshold":0},"joins":[{"job_id":"disagree","joined_at":1789495961,"node_id":"16f52d6fea63ef086405aa71b537dd4833bd0b36ffe054be0fd07fb525af157d","party_id":0,"pubkey":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"36cb25d7453a29bae17e7c71fd14f817f95a5414c61b5ebe8aceb7790ba230c8ac922609a1726927a061a7df1767770caf72c2a4efb69dc9c3fcaa9a23131608"},{"job_id":"disagree","joined_at":1789495961,"node_id":"90bdeef49d5d2664e6ef317c3fc4dec4975f13287af7ce3ff4dd9fdf19bb2d7e","party_id":1,"pubkey":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"b7cd6fa31ffc5eaa48159d42b4722220436fc16ba8fe8cc7be418a583c6f6f42dafa419888e03464db5c2de576c787beafbdd4ed5cd307c3cf72d808e310bb01"}],"nodes":[{"announced_at":1789495961,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"16f52d6fea63ef086405aa71b537dd4833bd0b36ffe054be0fd07fb525af157d","operator_label":"evidence","pubkey":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"41c946049eac6480be8d5cd3eb90041bdbf164fc593bfd00e543d7dcead9f000e67d1f661c1160270a4f203237404930e234b7ceb167b48cd0ebd3405a5e0206","supported_thresholds":[0]},{"announced_at":1789495961,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"90bdeef49d5d2664e6ef317c3fc4dec4975f13287af7ce3ff4dd9fdf19bb2d7e","operator_label":"evidence","pubkey":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"15587aac801ca37c3bf3e1f42ea08a906cdf08dc64c6bff7590f875de22466ebee51d412d7bd49a2fd27732d905821871a023e72d1d25b51dc3cdc1ba1497e09","supported_thresholds":[0]}],"results":[{"completed_at":1789495961,"job_id":"disagree","node_id":"16f52d6fea63ef086405aa71b537dd4833bd0b36ffe054be0fd07fb525af157d","party_id":0,"program_id":"program","pubkey":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"a2d0c447454b4581e4365218f72a24a571ffe251db6ef29796d2fab61b25d85fb07bed1c250e1b4867e1a14644442197db20f3a8067c8b44c3815f7838759a02","value":"7"},{"completed_at":1789495961,"job_id":"disagree","node_id":"90bdeef49d5d2664e6ef317c3fc4dec4975f13287af7ce3ff4dd9fdf19bb2d7e","party_id":1,"program_id":"program","pubkey":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"829808197db27515235a6ff8093f605e6d67604ab274a0e56e53aca004d32cc734890fff0bee6df704e8a52b6564faeeb28db0b126c8c0e2766ede4983672305","value":"9"}],"version":1}
+POST /jobs/job/join -> 201 {"accepted":true}
+POST /jobs -> 201 {"accepted":true}
+POST /jobs/job/result -> 201 {"accepted":true}
+GET /jobs/job/bundle -> 200 {"job":{"created_at":1789495961,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"6e7f26ff1b0417f900c50b1757003d4caa57ad5577de3148599e10b117b296482d69cfb3c51423641a61a388f2c91225a054774f19d3
+bundle: {"job":{"created_at":1789495961,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"6e7f26ff1b0417f900c50b1757003d4caa57ad5577de3148599e10b117b296482d69cfb3c51423641a61a388f2c91225a054774f19d377463426c06d02b8550c","state":"open","threshold":0},"joins":[{"job_id":"job","joined_at":1789495961,"node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"9e56dbebf61a52505fa9b333067fb7f10d1e6475a78b34e661f7f039ad156bfb52a23211b4721cafc1442402487ff11a08bdce1539c13b1f8944a4daea198805"},{"job_id":"job","joined_at":1789495961,"node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"c2a93243780b4f8b4a254f1aff2562940838f86315481f79de1ba0dbf6a9a14f9b6d1dc6dc12c471921fab97cc8542416bb49747394530814d79dc596662e20e"}],"nodes":[{"announced_at":1789495961,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","operator_label":"evidence","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"ad17fff1f248375eafaf474ba2c66aa067dd3b8616fe43cf5779d1017e4010989b074ac765c02dc092e00d21a1329bc7ca524681db4f5861a55662b7a229e601","supported_thresholds":[0]},{"announced_at":1789495961,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","operator_label":"evidence","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"eea5a710b65c1638ec961c906ff3d005f069264e597f18e7e4e910d26272f46020c8fc92548e4464523fecd29f18b1d8a7e560854261e69b7a43534ab974e80c","supported_thresholds":[0]}],"results":[{"completed_at":1789495961,"job_id":"job","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"program_id":"program","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"6a704cb20ebd00cb00dfa2e57841064c60071dfeb196594cb9fe8de6353f2b5906380c0ff9e0a8b14b1f26b5ae759112984a8d6e0485fbeb60c71c544f321605","value":"7"},{"completed_at":1789495961,"job_id":"job","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"program_id":"program","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"264b2f79beae9291b2fe8c8b686b0920cc368d81b1b2b1011a5d5c0270db9a802f4cec351c899f44c8a35b5301a49c3e9293567b34f2e8ce87815e01384d4f09","value":"7"}],"version":1}
+POST /jobs/partial/join -> 201 {"accepted":true}
+GET /jobs/partial/bundle -> 200 {"job":{"created_at":1789495961,"entry":"main","job_id":"partial","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"d32403c1baf38c79eb4e4de7141d364243385338edb63999cd7be55a0c0d0a9d02f7b7049442cb8b49fbd27c151217538df2e6e0
+partial bundle: {"job":{"created_at":1789495961,"entry":"main","job_id":"partial","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"d32403c1baf38c79eb4e4de7141d364243385338edb63999cd7be55a0c0d0a9d02f7b7049442cb8b49fbd27c151217538df2e6e0c4a976c9f0b995978e9c0e03","state":"open","threshold":0},"joins":[{"job_id":"partial","joined_at":1789495961,"node_id":"90bdeef49d5d2664e6ef317c3fc4dec4975f13287af7ce3ff4dd9fdf19bb2d7e","party_id":0,"pubkey":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"30ef80dc8732704bc1d540a6775df68c9c4102ab83d001d3ba9a15cc507db32474cec3a4c59437dd1e84c5f64cc8ddcaabde8551444002c5e30dc7a600794b03"}],"nodes":[{"announced_at":1789495961,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"90bdeef49d5d2664e6ef317c3fc4dec4975f13287af7ce3ff4dd9fdf19bb2d7e","operator_label":"evidence","pubkey":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"15587aac801ca37c3bf3e1f42ea08a906cdf08dc64c6bff7590f875de22466ebee51d412d7bd49a2fd27732d905821871a023e72d1d25b51dc3cdc1ba1497e09","supported_thresholds":[0]}],"results":[],"version":1}
+GET /jobs/unknown/bundle -> 404 {"error":"unknown job"}
+store file:
+{"kind":"node","record":{"announced_at":1789495961,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"16f52d6fea63ef086405aa71b537dd4833bd0b36ffe054be0fd07fb525af157d","operator_label":"evidence","pubkey":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"41c946049eac6480be8d5cd3eb90041bdbf164fc593bfd00e543d7dcead9f000e67d1f661c1160270a4f203237404930e234b7ceb167b48cd0ebd3405a5e0206","supported_thresholds":[0]}}
+{"kind":"node","record":{"announced_at":1789495961,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"90bdeef49d5d2664e6ef317c3fc4dec4975f13287af7ce3ff4dd9fdf19bb2d7e","operator_label":"evidence","pubkey":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"15587aac801ca37c3bf3e1f42ea08a906cdf08dc64c6bff7590f875de22466ebee51d412d7bd49a2fd27732d905821871a023e72d1d25b51dc3cdc1ba1497e09","supported_thresholds":[0]}}
+{"kind":"job","record":{"created_at":1789495961,"entry":"main","job_id":"disagree","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"f80a0316bbb8ac0cd8af240bb84eda23a786674e731dd04b3c3854490e9aef04b40946870ce0c57d50d565d0e6e9e64738b09e54152ca2d5789add3312e1b80a","state":"open","threshold":0}}
+{"kind":"join","record":{"job_id":"disagree","joined_at":1789495961,"node_id":"16f52d6fea63ef086405aa71b537dd4833bd0b36ffe054be0fd07fb525af157d","party_id":0,"pubkey":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"36cb25d7453a29bae17e7c71fd14f817f95a5414c61b5ebe8aceb7790ba230c8ac922609a1726927a061a7df1767770caf72c2a4efb69dc9c3fcaa9a23131608"}}
+{"kind":"result","record":{"completed_at":1789495961,"job_id":"disagree","node_id":"16f52d6fea63ef086405aa71b537dd4833bd0b36ffe054be0fd07fb525af157d","party_id":0,"program_id":"program","pubkey":"ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c","signature":"a2d0c447454b4581e4365218f72a24a571ffe251db6ef29796d2fab61b25d85fb07bed1c250e1b4867e1a14644442197db20f3a8067c8b44c3815f7838759a02","value":"7"}}
+{"kind":"join","record":{"job_id":"disagree","joined_at":1789495961,"node_id":"90bdeef49d5d2664e6ef317c3fc4dec4975f13287af7ce3ff4dd9fdf19bb2d7e","party_id":1,"pubkey":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"b7cd6fa31ffc5eaa48159d42b4722220436fc16ba8fe8cc7be418a583c6f6f42dafa419888e03464db5c2de576c787beafbdd4ed5cd307c3cf72d808e310bb01"}}
+{"kind":"result","record":{"completed_at":1789495961,"job_id":"disagree","node_id":"90bdeef49d5d2664e6ef317c3fc4dec4975f13287af7ce3ff4dd9fdf19bb2d7e","party_id":1,"program_id":"program","pubkey":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"829808197db27515235a6ff8093f605e6d67604ab274a0e56e53aca004d32cc734890fff0bee6df704e8a52b6564faeeb28db0b126c8c0e2766ede4983672305","value":"9"}}
+{"kind":"job","record":{"created_at":1789495961,"entry":"main","job_id":"partial","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"d32403c1baf38c79eb4e4de7141d364243385338edb63999cd7be55a0c0d0a9d02f7b7049442cb8b49fbd27c151217538df2e6e0c4a976c9f0b995978e9c0e03","state":"open","threshold":0}}
+{"kind":"join","record":{"job_id":"partial","joined_at":1789495961,"node_id":"90bdeef49d5d2664e6ef317c3fc4dec4975f13287af7ce3ff4dd9fdf19bb2d7e","party_id":0,"pubkey":"6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1","signature":"30ef80dc8732704bc1d540a6775df68c9c4102ab83d001d3ba9a15cc507db32474cec3a4c59437dd1e84c5f64cc8ddcaabde8551444002c5e30dc7a600794b03"}}
+test http_disagreeing_and_partial_bundles_are_served ... ok
+independent verify_signature over job + 2 nodes + 2 joins + 2 results: ok
+tampered bundle result rejected without the service: signature does not verify: signature error: Verification equation was not satisfied
+store file:
+{"kind":"node","record":{"announced_at":1789495961,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","operator_label":"evidence","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"ad17fff1f248375eafaf474ba2c66aa067dd3b8616fe43cf5779d1017e4010989b074ac765c02dc092e00d21a1329bc7ca524681db4f5861a55662b7a229e601","supported_thresholds":[0]}}
+{"kind":"node","record":{"announced_at":1789495961,"attestation":{"collateral_json":"{}","event_log":"measurement","quote_hex":"quote"},"endpoint":"node:8080","max_parties":2,"node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","operator_label":"evidence","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"eea5a710b65c1638ec961c906ff3d005f069264e597f18e7e4e910d26272f46020c8fc92548e4464523fecd29f18b1d8a7e560854261e69b7a43534ab974e80c","supported_thresholds":[0]}}
+{"kind":"job","record":{"created_at":1789495961,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"6e7f26ff1b0417f900c50b1757003d4caa57ad5577de3148599e10b117b296482d69cfb3c51423641a61a388f2c91225a054774f19d377463426c06d02b8550c","state":"open","threshold":0}}
+{"kind":"join","record":{"job_id":"job","joined_at":1789495961,"node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"9e56dbebf61a52505fa9b333067fb7f10d1e6475a78b34e661f7f039ad156bfb52a23211b4721cafc1442402487ff11a08bdce1539c13b1f8944a4daea198805"}}
+{"kind":"result","record":{"completed_at":1789495961,"job_id":"job","node_id":"83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062","party_id":0,"program_id":"program","pubkey":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"6a704cb20ebd00cb00dfa2e57841064c60071dfeb196594cb9fe8de6353f2b5906380c0ff9e0a8b14b1f26b5ae759112984a8d6e0485fbeb60c71c544f321605","value":"7"}}
+{"kind":"join","record":{"job_id":"job","joined_at":1789495961,"node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"c2a93243780b4f8b4a254f1aff2562940838f86315481f79de1ba0dbf6a9a14f9b6d1dc6dc12c471921fab97cc8542416bb49747394530814d79dc596662e20e"}}
+{"kind":"result","record":{"completed_at":1789495961,"job_id":"job","node_id":"1eed29b1654fbca94617004d7969dfc4652b1f30a7a8b771c34800155483380b","party_id":1,"program_id":"program","pubkey":"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394","signature":"264b2f79beae9291b2fe8c8b686b0920cc368d81b1b2b1011a5d5c0270db9a802f4cec351c899f44c8a35b5301a49c3e9293567b34f2e8ce87815e01384d4f09","value":"7"}}
+server stderr: stoffel lobby listening on 127.0.0.1:35685, store /tmp/lobby-http-evidence-529-1789495961.jsonl
+GET /jobs/job/bundle -> 200 {"job":{"created_at":1789495961,"entry":"main","job_id":"job","n_parties":2,"not_before":null,"policy":{"allowed_compose_hashes":[],"allowed_measurements":[]},"program_id":"program","program_url":null,"proposer":"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","signature":"6e7f26ff1b0417f900c50b1757003d4caa57ad5577de3148599e10b117b296482d69cfb3c51423641a61a388f2c91225a054774f19d3
+restart with a tampered store line -> exit Some(1), stderr: Error: "signature does not verify: signature error: Verification equation was not satisfied"
+test http_lifecycle_bundle_and_reload_transcript ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+

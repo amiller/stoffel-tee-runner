@@ -30,9 +30,9 @@ fn node(key: &SigningKey) -> NodeRecord {
     }
 }
 
-fn job(proposer: &str) -> JobRecord {
+fn job(proposer: &str, job_id: &str) -> JobRecord {
     JobRecord {
-        job_id: "job".into(), program_id: "program".into(), program_url: None, entry: "main".into(),
+        job_id: job_id.into(), program_id: "program".into(), program_url: None, entry: "main".into(),
         n_parties: 2, threshold: 0, policy: JobPolicy::default(), not_before: None,
         state: JobState::Open, proposer: proposer.into(), created_at: now(), signature: String::new(),
     }
@@ -129,9 +129,13 @@ fn http_lifecycle_bundle_and_reload_transcript() {
     exchange(server.addr, "POST", "/nodes", &unknown_field.to_string(), 400);
     exchange(server.addr, "POST", "/nodes", "{not json", 400);
 
-    exchange(server.addr, "POST", "/jobs", &signed(job(&nodes[0].pubkey), &keys[0]).to_string(), 201);
-    // the lifecycle is incomplete: the service must refuse, not fabricate a bundle
-    exchange(server.addr, "GET", "/jobs/job/bundle", "", 409);
+    exchange(server.addr, "POST", "/jobs", &signed(job(&nodes[0].pubkey, "job"), &keys[0]).to_string(), 201);
+    // the lifecycle is incomplete: the bundle is served with what exists — zero
+    // joins, zero results — because completeness is the reader's check, not the
+    // service's (issue #7)
+    let empty = exchange(server.addr, "GET", "/jobs/job/bundle", "", 200);
+    let empty: EvidenceBundle = serde_json::from_str(&empty).expect("incomplete bundle deserializes");
+    assert_eq!((empty.nodes.len(), empty.joins.len(), empty.results.len()), (0, 0, 0));
 
     for i in 0..2 {
         let join = JoinRecord { job_id: "job".into(), node_id: nodes[i].node_id.clone(), pubkey: nodes[i].pubkey.clone(), party_id: i, joined_at: now(), signature: String::new() };
@@ -179,5 +183,49 @@ fn http_lifecycle_bundle_and_reload_transcript() {
     assert!(!out.status.success());
     assert!(stderr.contains("signature does not verify"), "tampered record was accepted on reload: {stderr}");
 
+    let _ = std::fs::remove_file(&store);
+}
+
+#[test]
+fn http_disagreeing_and_partial_bundles_are_served() {
+    let store: PathBuf = std::env::temp_dir().join(format!("lobby-http-evidence-7-{}-{}.jsonl", std::process::id(), now()));
+    let mut server = start(&store);
+
+    let keys = [SigningKey::from_bytes(&[4; 32]), SigningKey::from_bytes(&[5; 32])];
+    let nodes = [node(&keys[0]), node(&keys[1])];
+    for i in 0..2 {
+        exchange(server.addr, "POST", "/nodes", &signed(nodes[i].clone(), &keys[i]).to_string(), 201);
+    }
+
+    // two parties open different values: the bundle is the evidence of the
+    // disagreement, so it is served, not 409'd (issue #7)
+    exchange(server.addr, "POST", "/jobs", &signed(job(&nodes[0].pubkey, "disagree"), &keys[0]).to_string(), 201);
+    for i in 0..2 {
+        let join = JoinRecord { job_id: "disagree".into(), node_id: nodes[i].node_id.clone(), pubkey: nodes[i].pubkey.clone(), party_id: i, joined_at: now(), signature: String::new() };
+        exchange(server.addr, "POST", "/jobs/disagree/join", &signed(join, &keys[i]).to_string(), 201);
+        let result = ResultRecord { job_id: "disagree".into(), node_id: nodes[i].node_id.clone(), pubkey: nodes[i].pubkey.clone(), party_id: i, value: if i == 0 { "7" } else { "9" }.into(), program_id: "program".into(), completed_at: now(), signature: String::new() };
+        exchange(server.addr, "POST", "/jobs/disagree/result", &signed(result, &keys[i]).to_string(), 201);
+    }
+    let body = exchange(server.addr, "GET", "/jobs/disagree/bundle", "", 200);
+    println!("disagreeing bundle: {body}");
+    let bundle: EvidenceBundle = serde_json::from_str(&body).expect("bundle deserializes");
+    assert_eq!((bundle.nodes.len(), bundle.joins.len(), bundle.results.len()), (2, 2, 2));
+    let values: Vec<&str> = bundle.results.iter().map(|r| r.value.as_str()).collect();
+    assert!(values.contains(&"7") && values.contains(&"9"), "both disagreeing results must be present: {values:?}");
+
+    // one join, zero results: served as-is; the reader judges the lifecycle
+    exchange(server.addr, "POST", "/jobs", &signed(job(&nodes[1].pubkey, "partial"), &keys[1]).to_string(), 201);
+    let join = JoinRecord { job_id: "partial".into(), node_id: nodes[1].node_id.clone(), pubkey: nodes[1].pubkey.clone(), party_id: 0, joined_at: now(), signature: String::new() };
+    exchange(server.addr, "POST", "/jobs/partial/join", &signed(join, &keys[1]).to_string(), 201);
+    let body = exchange(server.addr, "GET", "/jobs/partial/bundle", "", 200);
+    println!("partial bundle: {body}");
+    let bundle: EvidenceBundle = serde_json::from_str(&body).expect("bundle deserializes");
+    assert_eq!((bundle.nodes.len(), bundle.joins.len(), bundle.results.len()), (1, 1, 0));
+
+    // unknown job stays 404
+    exchange(server.addr, "GET", "/jobs/unknown/bundle", "", 404);
+
+    println!("store file:\n{}", std::fs::read_to_string(&store).unwrap().trim_end());
+    server.stop();
     let _ = std::fs::remove_file(&store);
 }

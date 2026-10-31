@@ -111,8 +111,8 @@ fn bundle(s: &Store, id: &str) -> Response {
     let joins: Vec<_> = s.joins.iter().filter(|x| x.job_id == id).cloned().collect();
     let results: Vec<_> = s.results.iter().filter(|x| x.job_id == id).cloned().collect();
     let nodes: Vec<_> = joins.iter().filter_map(|x| latest_node(s, &x.node_id).cloned()).collect();
-    if joins.len() != j.n_parties || results.len() != j.n_parties { return Response::json(409, json!({"error":"job lifecycle is incomplete"})); }
-    if results.windows(2).any(|w| w[0].value != w[1].value) { return Response::json(409, json!({"error":"results disagree"})); }
+    // No verdicts: disagreement and incompleteness are the reader's checks
+    // (docs/lobby-design.md, verification steps), and the bundle is the evidence.
     Response::json(200, serde_json::to_value(EvidenceBundle { version: BUNDLE_VERSION, job: j, nodes, joins, results }).unwrap())
 }
 
