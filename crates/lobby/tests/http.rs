@@ -3,11 +3,14 @@
 //! `lobby_records` alone — the reader re-verifies, the service is never asked
 //! for a verdict. This repo has no staging deployment, so this run captured
 //! with `-- --nocapture` is the Tier 1 transcript.
+//! Issue #10 adds the re-announce test: a join pins the announce it joined
+//! under, and the bundle carries that exact NodeRecord, not the latest.
 
 use ed25519_dalek::SigningKey;
 use lobby_records::{
-    node_id_for, sign_record, verify_signature, AttestationBlob, EvidenceBundle, JobPolicy,
-    JobRecord, JobState, JoinRecord, NodeRecord, ResultRecord, Signed,
+    node_announce_hash, node_id_for, sign_record, verify_signature, AttestationBlob,
+    EvidenceBundle, JobPolicy, JobRecord, JobState, JoinRecord, NodeRecord, ResultRecord, Signed,
+    BUNDLE_VERSION,
 };
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -134,7 +137,7 @@ fn http_lifecycle_bundle_and_reload_transcript() {
     exchange(server.addr, "GET", "/jobs/job/bundle", "", 409);
 
     for i in 0..2 {
-        let join = JoinRecord { job_id: "job".into(), node_id: nodes[i].node_id.clone(), pubkey: nodes[i].pubkey.clone(), party_id: i, joined_at: now(), signature: String::new() };
+        let join = JoinRecord { job_id: "job".into(), node_id: nodes[i].node_id.clone(), pubkey: nodes[i].pubkey.clone(), node_announce_hash: node_announce_hash(&nodes[i]).unwrap(), party_id: i, joined_at: now(), signature: String::new() };
         exchange(server.addr, "POST", "/jobs/job/join", &signed(join, &keys[i]).to_string(), 201);
         let result = ResultRecord { job_id: "job".into(), node_id: nodes[i].node_id.clone(), pubkey: nodes[i].pubkey.clone(), party_id: i, value: "7".into(), program_id: "program".into(), completed_at: now(), signature: String::new() };
         exchange(server.addr, "POST", "/jobs/job/result", &signed(result, &keys[i]).to_string(), 201);
@@ -179,5 +182,65 @@ fn http_lifecycle_bundle_and_reload_transcript() {
     assert!(!out.status.success());
     assert!(stderr.contains("signature does not verify"), "tampered record was accepted on reload: {stderr}");
 
+    let _ = std::fs::remove_file(&store);
+}
+
+#[test]
+fn http_reannounce_after_join_does_not_rewrite_the_bundle() {
+    // issue #10 acceptance: announce, join, re-announce with a different
+    // attestation, fetch the bundle, assert it carries the FIRST announce.
+    let store: PathBuf = std::env::temp_dir().join(format!("lobby-http-reannounce-{}-{}.jsonl", std::process::id(), now()));
+    let mut server = start(&store);
+    println!("server stderr: {}", server.stderr.lock().unwrap().join("\n"));
+
+    let key = SigningKey::from_bytes(&[4; 32]);
+    let mut first = node(&key);
+    first.attestation.event_log = "first-measurement".into();
+    first.attestation.quote_hex = "quote-one".into();
+    exchange(server.addr, "POST", "/nodes", &signed(first.clone(), &key).to_string(), 201);
+    let first_hash = node_announce_hash(&first).unwrap();
+    println!("first announce pinned by the join: {first_hash}");
+
+    let mut job = job(&first.pubkey);
+    job.job_id = "reannounce-job".into();
+    job.n_parties = 1;
+    exchange(server.addr, "POST", "/jobs", &signed(job, &key).to_string(), 201);
+
+    // a join that does not pin the node's current announce is refused
+    let wrong_pin = JoinRecord { job_id: "reannounce-job".into(), node_id: first.node_id.clone(), pubkey: first.pubkey.clone(), node_announce_hash: "00".repeat(32), party_id: 0, joined_at: now(), signature: String::new() };
+    exchange(server.addr, "POST", "/jobs/reannounce-job/join", &signed(wrong_pin, &key).to_string(), 400);
+
+    let join = JoinRecord { job_id: "reannounce-job".into(), node_id: first.node_id.clone(), pubkey: first.pubkey.clone(), node_announce_hash: first_hash.clone(), party_id: 0, joined_at: now(), signature: String::new() };
+    exchange(server.addr, "POST", "/jobs/reannounce-job/join", &signed(join, &key).to_string(), 201);
+
+    // same key, same identity, different attestation: a new announce
+    let mut second = node(&key);
+    second.attestation.event_log = "second-measurement".into();
+    second.attestation.quote_hex = "quote-two".into();
+    exchange(server.addr, "POST", "/nodes", &signed(second.clone(), &key).to_string(), 201);
+    let second_hash = node_announce_hash(&second).unwrap();
+    assert_ne!(first_hash, second_hash);
+    println!("re-announce hash (must NOT appear in the bundle): {second_hash}");
+
+    let result = ResultRecord { job_id: "reannounce-job".into(), node_id: first.node_id.clone(), pubkey: first.pubkey.clone(), party_id: 0, value: "7".into(), program_id: "program".into(), completed_at: now(), signature: String::new() };
+    exchange(server.addr, "POST", "/jobs/reannounce-job/result", &signed(result, &key).to_string(), 201);
+
+    let body = exchange(server.addr, "GET", "/jobs/reannounce-job/bundle", "", 200);
+    println!("bundle: {body}");
+    let bundle: EvidenceBundle = serde_json::from_str(&body).expect("bundle deserializes");
+    assert_eq!(bundle.version, BUNDLE_VERSION);
+    assert_eq!((bundle.nodes.len(), bundle.joins.len(), bundle.results.len()), (1, 1, 1));
+    let carried = &bundle.nodes[0];
+    assert_eq!(node_announce_hash(carried).unwrap(), bundle.joins[0].node_announce_hash);
+    assert_eq!(node_announce_hash(carried).unwrap(), first_hash, "bundle carries the FIRST announce");
+    assert_eq!(carried.attestation.event_log, "first-measurement");
+    assert_eq!(carried.attestation.quote_hex, "quote-one");
+    verify_signature(&bundle.job).unwrap();
+    verify_signature(carried).unwrap();
+    verify_signature(&bundle.joins[0]).unwrap();
+    verify_signature(&bundle.results[0]).unwrap();
+    println!("bundle carries the first announce; all four signatures re-verify offline");
+
+    server.stop();
     let _ = std::fs::remove_file(&store);
 }

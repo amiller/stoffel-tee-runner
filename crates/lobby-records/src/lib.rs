@@ -164,6 +164,10 @@ pub struct JoinRecord {
     pub node_id: DigestHex,
     /// Node's long-term public key, hex. Must match the `NodeRecord`.
     pub pubkey: PubKeyHex,
+    /// [`node_announce_hash`] of the `NodeRecord` this node is joining under.
+    /// The bundle carries that exact record, so a re-announce after the join
+    /// cannot rewrite the attestation a verifier sees for it.
+    pub node_announce_hash: DigestHex,
     /// Party index within the committee.
     pub party_id: usize,
     pub joined_at: u64,
@@ -199,8 +203,9 @@ pub struct EvidenceBundle {
     pub results: Vec<ResultRecord>,
 }
 
-/// Current bundle schema version.
-pub const BUNDLE_VERSION: u32 = 1;
+/// Current bundle schema version. 2: `JoinRecord` gained the required
+/// `node_announce_hash` field and the bundle carries the pinned `NodeRecord`.
+pub const BUNDLE_VERSION: u32 = 2;
 
 macro_rules! impl_signed {
     ($t:ty, $d:expr, $signer:ident) => {
@@ -293,6 +298,14 @@ pub fn node_id_for(pubkey: &[u8; 32]) -> DigestHex {
     hex::encode(blake3::hash(pubkey).as_bytes())
 }
 
+/// `node_announce_hash` for a `NodeRecord`: `blake3` of its signing preimage,
+/// hex. The preimage is the exact bytes the node's Ed25519 signature covers, so
+/// pinning it in a [`JoinRecord`] names one announce unforgeably and lets a
+/// verifier match the record in the bundle offline.
+pub fn node_announce_hash(node: &NodeRecord) -> Result<DigestHex, String> {
+    Ok(hex::encode(blake3::hash(&signing_preimage(node)?).as_bytes()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,6 +323,7 @@ mod tests {
             job_id: job.to_string(),
             node_id: node_id_for(&pk),
             pubkey: hex::encode(pk),
+            node_announce_hash: "pin".to_string(),
             party_id: 2,
             joined_at: 1786836064,
             signature: String::new(),
@@ -332,6 +346,7 @@ mod tests {
             (|r: &mut JoinRecord| r.party_id = 3) as fn(&mut JoinRecord),
             |r: &mut JoinRecord| r.job_id = "deadbeef".to_string(),
             |r: &mut JoinRecord| r.joined_at += 1,
+            |r: &mut JoinRecord| r.node_announce_hash = "00".repeat(32),
         ] {
             let mut bad = r.clone();
             mutate(&mut bad);
@@ -372,5 +387,37 @@ mod tests {
     fn node_id_is_the_hash_of_the_key() {
         let pk = key().verifying_key().to_bytes();
         assert_eq!(node_id_for(&pk), hex::encode(blake3::hash(&pk).as_bytes()));
+    }
+
+    #[test]
+    fn announce_hash_covers_the_signed_bytes_and_moves_with_any_change() {
+        let k = key();
+        let pk = k.verifying_key().to_bytes();
+        let node = |log: &str| NodeRecord {
+            node_id: node_id_for(&pk),
+            pubkey: hex::encode(pk),
+            endpoint: "node:8080".into(),
+            max_parties: 2,
+            supported_thresholds: vec![0],
+            operator_label: "test".into(),
+            attestation: AttestationBlob {
+                quote_hex: "quote".into(),
+                collateral_json: "{}".into(),
+                event_log: log.into(),
+            },
+            announced_at: 1786836064,
+            signature: String::new(),
+        };
+        let mut a = node("log-one");
+        sign_record(&mut a, &k).unwrap();
+        // the hash is over the preimage (signature blanked), so it does not
+        // depend on the signature itself and is computable offline
+        assert_eq!(node_announce_hash(&a).unwrap(), hex::encode(
+            blake3::hash(signing_preimage(&a).unwrap().as_slice()).as_bytes()
+        ));
+        // a re-announce with a different attestation is a different announce
+        let mut b = node("log-two");
+        sign_record(&mut b, &k).unwrap();
+        assert_ne!(node_announce_hash(&a).unwrap(), node_announce_hash(&b).unwrap());
     }
 }

@@ -16,6 +16,10 @@ the `stoffel-lobby` binary (`crates/lobby/tests/http.rs`, transcript committed u
 `.evidence/issue-2/`), including unknown fields, a forged signature, a record tampered
 after signing, refusal to fabricate a bundle from an incomplete lifecycle, reload of
 the store with re-verification, and rejection of a tampered store line at startup.
+Each join pins the announce it joined under (`node_announce_hash` in the
+`JoinRecord`), and the bundle carries that exact `NodeRecord` — a re-announce
+after joining cannot rewrite the attestation a verifier sees. Tested end-to-end
+in the same file, transcript under `.evidence/issue-10/`.
 The bundle the service returns is also re-verified signature-by-signature with
 `lobby-records` alone, without asking the service. There is no staging deployment or
 `stoffel-verify` binary in this repository, so quote verification and full independent
@@ -88,7 +92,10 @@ not_before optional; this is what "scheduled" means
 state      open -> forming -> running -> finished | failed
 ```
 
-**`JoinRecord`** — a node signs "I will serve job_id as party i".
+**`JoinRecord`** — a node signs "I will serve job_id as party i, under the announce
+I pinned". The pin is the blake3 of the announce's signing preimage, so it names
+one `NodeRecord` unforgeably; the bundle resolves the node by that hash, not by
+latest.
 
 **`ResultRecord`** — a node signs "job_id opened this value at this time".
 
@@ -100,7 +107,8 @@ Given a job and the records referencing it, a verifier with no network access ch
    own registers
 2. each measurement and compose hash satisfies the job's policy
 3. each quote's `report_data` binds that node's long-term pubkey
-4. every Join and Result signature verifies under that pubkey
+4. every Join and Result signature verifies under that pubkey, and each join's
+   pinned announce hash matches the `NodeRecord` the bundle carries for it
 5. the results agree
 
 That is exactly the check done by hand today, made mechanical and runnable by someone who

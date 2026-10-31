@@ -1,4 +1,4 @@
-use lobby_records::{verify_signature, EvidenceBundle, JobRecord, JobState, JoinRecord, NodeRecord, ResultRecord, Signed, BUNDLE_VERSION};
+use lobby_records::{verify_signature, EvidenceBundle, JobRecord, JobState, JoinRecord, NodeRecord, ResultRecord, Signed, BUNDLE_VERSION, node_announce_hash};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -30,7 +30,7 @@ fn strict<T: DeserializeOwned>(value: Value, keys: &[&str]) -> Result<T, String>
 
 const NODE_KEYS: &[&str] = &["node_id","pubkey","endpoint","max_parties","supported_thresholds","operator_label","attestation","announced_at","signature"];
 const JOB_KEYS: &[&str] = &["job_id","program_id","program_url","entry","n_parties","threshold","policy","not_before","state","proposer","created_at","signature"];
-const JOIN_KEYS: &[&str] = &["job_id","node_id","pubkey","party_id","joined_at","signature"];
+const JOIN_KEYS: &[&str] = &["job_id","node_id","pubkey","node_announce_hash","party_id","joined_at","signature"];
 const RESULT_KEYS: &[&str] = &["job_id","node_id","pubkey","party_id","value","program_id","completed_at","signature"];
 
 fn load(path: &Path) -> Result<Store, String> {
@@ -89,6 +89,10 @@ fn post(s: &mut Store, path: &str, body: Value) -> Response {
             let n = match latest_node(s, &r.node_id) { Some(n) => n, None => return bad("unknown node") };
             if j.state != JobState::Open && j.state != JobState::Forming { return bad("job is not accepting joins"); }
             if n.pubkey != r.pubkey || r.party_id >= j.n_parties { return bad("join key or party is invalid"); }
+            // the join pins the announce the node is presenting right now; the
+            // bundle later resolves the node by this hash, not by latest
+            let pinned = match node_announce_hash(n) { Ok(h) => h, Err(e) => return bad(e) };
+            if pinned != r.node_announce_hash { return bad("node_announce_hash does not match the node's current announce"); }
             if s.joins.iter().any(|x| x.job_id == id && (x.node_id == r.node_id || x.party_id == r.party_id)) { return bad("node or party already joined"); }
             let v = serde_json::to_value(&r).unwrap(); if let Err(e) = append(s, "join", v) { return bad(e); } s.joins.push(r); Response::json(201, json!({"accepted":true}))
         }
@@ -110,7 +114,16 @@ fn bundle(s: &Store, id: &str) -> Response {
     let j = match job(s, id) { Some(j) => j.clone(), None => return Response::json(404, json!({"error":"unknown job"})) };
     let joins: Vec<_> = s.joins.iter().filter(|x| x.job_id == id).cloned().collect();
     let results: Vec<_> = s.results.iter().filter(|x| x.job_id == id).cloned().collect();
-    let nodes: Vec<_> = joins.iter().filter_map(|x| latest_node(s, &x.node_id).cloned()).collect();
+    // each join carries the hash of the announce it joined under; resolve by
+    // that hash so a re-announce cannot rewrite the bundle's evidence. The
+    // store is append-only so the pinned record is always present — a miss
+    // means lines were removed, which is an error, never a silent drop.
+    let nodes: Vec<_> = match joins.iter().map(|x| {
+        s.nodes.iter().rev()
+            .find(|n| n.node_id == x.node_id && matches!(node_announce_hash(n), Ok(h) if h == x.node_announce_hash))
+            .cloned()
+            .ok_or_else(|| format!("join by {} pins an announce missing from the store", x.node_id))
+    }).collect() { Ok(nodes) => nodes, Err(e) => return Response::json(500, json!({"error": e})) };
     if joins.len() != j.n_parties || results.len() != j.n_parties { return Response::json(409, json!({"error":"job lifecycle is incomplete"})); }
     if results.windows(2).any(|w| w[0].value != w[1].value) { return Response::json(409, json!({"error":"results disagree"})); }
     Response::json(200, serde_json::to_value(EvidenceBundle { version: BUNDLE_VERSION, job: j, nodes, joins, results }).unwrap())
@@ -189,6 +202,7 @@ mod tests {
     use lobby_records::{node_id_for, sign_record, AttestationBlob, JobPolicy};
 
     fn store() -> Store { Store { path: env::temp_dir().join(format!("stoffel-lobby-test-{}-{}.jsonl", std::process::id(), now())), ..Default::default() } }
+    fn announce_hash(n: &NodeRecord) -> String { node_announce_hash(n).unwrap() }
     fn node(key: &SigningKey) -> NodeRecord {
         let pk = key.verifying_key().to_bytes();
         NodeRecord { node_id: node_id_for(&pk), pubkey: hex::encode(pk), endpoint: "node:8080".into(), max_parties: 2, supported_thresholds: vec![0], operator_label: "test".into(), attestation: AttestationBlob { quote_hex: "quote".into(), collateral_json: "{}".into(), event_log: "measurement".into() }, announced_at: now(), signature: String::new() }
@@ -203,7 +217,7 @@ mod tests {
         let mut job = JobRecord { job_id: "job".into(), program_id: "program".into(), program_url: None, entry: "main".into(), n_parties: 2, threshold: 0, policy: JobPolicy::default(), not_before: None, state: JobState::Open, proposer: nodes[0].pubkey.clone(), created_at: now(), signature: String::new() };
         sign_record(&mut job, &keys[0]).unwrap(); assert_eq!(post_record(&mut s, "/jobs", &job).status, 201);
         for (i, n) in nodes.iter().enumerate() {
-            let mut join = JoinRecord { job_id: "job".into(), node_id: n.node_id.clone(), pubkey: n.pubkey.clone(), party_id: i, joined_at: now(), signature: String::new() }; sign_record(&mut join, &keys[i]).unwrap(); assert_eq!(post_record(&mut s, "/jobs/job/join", &join).status, 201);
+            let mut join = JoinRecord { job_id: "job".into(), node_id: n.node_id.clone(), pubkey: n.pubkey.clone(), node_announce_hash: announce_hash(n), party_id: i, joined_at: now(), signature: String::new() }; sign_record(&mut join, &keys[i]).unwrap(); assert_eq!(post_record(&mut s, "/jobs/job/join", &join).status, 201);
             let mut result = ResultRecord { job_id: "job".into(), node_id: n.node_id.clone(), pubkey: n.pubkey.clone(), party_id: i, value: "same".into(), program_id: "program".into(), completed_at: now(), signature: String::new() }; sign_record(&mut result, &keys[i]).unwrap(); assert_eq!(post_record(&mut s, "/jobs/job/result", &result).status, 201);
         }
         assert_eq!(bundle(&s, "job").status, 200);
