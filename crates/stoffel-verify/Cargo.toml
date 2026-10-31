@@ -1,0 +1,29 @@
+[package]
+name = "stoffel-verify"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Offline verifier for stoffel-lobby evidence bundles"
+
+[dependencies]
+lobby-records = { path = "../lobby-records" }
+# The two verification primitives this crate is allowed to use:
+# `verify_dstack_quote_with_registers` (Intel trust-chain quote verification)
+# and `dstack_event_log::verify_event_log` (RTMR replay). No other quote or
+# event-log verification path exists here.
+stoffel-vm = { git = "https://github.com/amiller/StoffelVM", branch = "w7-committee-demo", features = ["attestation-dstack"] }
+# Parse-only dependency: reads `report_data` out of a raw TDX quote (the
+# stoffel-vm wrapper returns registers but not report_data). The signature
+# chain is still verified exclusively by `verify_dstack_quote_with_registers`.
+dcap-qvl = { version = "0.5.2", default-features = false, features = ["std", "rustcrypto", "default-x509", "report"] }
+# Only for `Quote::decode` when reading `report_data` out of the raw quote
+# bytes (already in the tree via dcap-qvl).
+parity-scale-codec = "3.7"
+serde_json = "1.0"
+blake3 = "1.5"
+hex = "0.4"
+ed25519-dalek = { version = "2", features = ["std"] }
+
+[[bin]]
+name = "stoffel-verify"
+path = "src/main.rs"
