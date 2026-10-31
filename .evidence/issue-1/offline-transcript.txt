@@ -1,0 +1,16 @@
+$ stoffel-verify --at 1751328000 /bundles/bad-join-signature.json
+stoffel-verify: bad join signature (node 83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062): does not verify under the declared key
+exit=1
+
+$ stoffel-verify --at 1751328000 /bundles/disagreeing-results.json
+stoffel-verify: results disagree: ["-4645747589851520984", "-4645747589851520983"]
+exit=1
+
+$ stoffel-verify --at 1751328000 /bundles/tampered-measurement.json
+stoffel-verify: measurement not allowed (node 83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062): b850cee4ffd9bee71c7626ab4c23fa1a2c92971401764a2089db9d2ff721fd78 is not in the job policy
+exit=1
+
+$ stoffel-verify --at 1751328000 /bundles/wrong-key-binding.json
+stoffel-verify: key binding mismatch (node 83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062): quote report_data[8..40] binds d3d1b34e1e5e1742d4bb02dd6ddd551862c1211d35c304f9eca3efdbb481601c, not blake3 of the node's pubkey (83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062)
+exit=1
+

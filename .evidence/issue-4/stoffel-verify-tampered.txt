@@ -1,0 +1,5 @@
+$ ./scripts/build.sh run -q -p stoffel-verify --bin stoffel-verify -- --at 1751624163 evidence/bundles/tampered-measurement.json
+exit code:
+1
+stderr:
+stoffel-verify: measurement not allowed (node 83561adb398fd87f8e7ed8331bff2fcb945733cc3012879cb9fab07928667062): b850cee4ffd9bee71c7626ab4c23fa1a2c92971401764a2089db9d2ff721fd78 is not in the job policy
