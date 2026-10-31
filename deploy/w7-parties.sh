@@ -25,6 +25,7 @@ for i in 0 1 2 3; do
     -H "Authorization: Bearer $TEE_DAEMON_TOKEN" -H "Content-Type: application/json" \
     -d "{\"name\":\"stoffel-p$i\",\"runtime\":\"image\",\"mode\":\"attested\",
      \"image\":\"$IMAGE\",\"image_port\":8090,\"egress\":true,
+     \"volumes\":[{\"name\":\"stoffel-p$i-data\",\"mount\":\"/data\"}],
      \"env\":{\"STOFFEL_ROLE\":\"party\",\"STOFFEL_PARTY_ID\":\"$i\",
       \"STOFFEL_BIND_ADDR\":\"0.0.0.0:9000\",
       \"STOFFEL_BOOTSTRAP_ADDR\":\"$BOOT_CONTAINER:9000\",

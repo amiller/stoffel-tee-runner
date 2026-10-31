@@ -10,6 +10,8 @@ actually happened, and the four things that had to be fixed before it did.
 
 Code changes live on a branch of a StoffelVM fork:
 **https://github.com/amiller/StoffelVM/tree/w7-committee-demo**
+(L1 durable-identity changes on **`ready-3` @ `c5ef97c`**, awaiting fast-forward into
+`w7-committee-demo`).
 
 ## What it demonstrates
 
@@ -47,6 +49,47 @@ GET /<party>/result
 ```
 
 Full capture in [`evidence/w7-pod-evidence.txt`](evidence/w7-pod-evidence.txt).
+
+## Durable node identity
+
+`tls_derived_id` was the only identity a node had, and it is per-process: restart the
+container and the node answers under a new id, so nothing can accumulate against a node
+or address it across restarts ([#3](https://github.com/amiller/stoffel-tee-runner/issues/3)).
+
+Each node now generates an Ed25519 keypair on first start and persists the 32-byte seed
+at `/data/stoffel-node.key` (0600; override with `STOFFEL_NODE_KEY_PATH`). Its identity is
+`node_id = hex(blake3(pubkey))` — the lobby's `node_id_for`, so records signed by the node
+key index stably. `GET /attestation` reports `node_id` and `pubkey` as soon as the key is
+loaded, before any quote exists. A corrupt or wrong-length key file is fatal (exit 13),
+never a silent regeneration — silently re-keying would fork the node's identity.
+
+The quote binding **adds**, it does not replace: `report_data[0..8]` stays the LE
+`tls_derived_id` and every existing admission check still runs. The quote now carries
+`blake3(pubkey)` at `report_data[8..40]`, and the gate refuses — with distinct
+`AttestationError` variants — a quote whose `[8..40]` differs from the hash of the pubkey
+in the presented `NodeRecord` (`PubKeyBindingMismatch`) or one that binds bytes at
+`[8..40]` while the registrant presents no pubkey (`MissingNodePubKey`). All-zero
+`[8..40]` means pre-L1 evidence and admits exactly as before.
+
+Restart evidence (local `docker run` on zed, real `stoffel-run` binary, named volume at
+`/data`, full transcript in [`evidence/l1-node-identity-restart.txt`](evidence/l1-node-identity-restart.txt)):
+
+```
+run 1   GET /attestation  node_id db0360dd…4be5e   /data/stoffel-node.key created (32 B, 0600)
+run 2   GET /attestation  node_id db0360dd…4be5e   same volume → same node_id, same pubkey
+recompute blake3(pubkey) outside the node → db0360dd…4be5e
+```
+
+The fresh-quote `report_data` decode is a pod-only claim: a hardware quote binding
+`[8..40]` can only be minted inside a TDX CVM, and the pod deploy needs operator
+credentials. It is pinned by the fork's test suite (`cargo test -p stoffel-vm
+attestation`, 24 passed; `--features attestation-dstack`, 29 passed) and named below as
+the operator step. One caveat the re-run must watch: the vendored real-TDX quote fixture
+proves an older dstack hashed the whole request into `report_data` instead of passing it
+verbatim — on such a pod an L1 node's binding at `[8..40]` would be overwritten by the
+platform and admission would fail *loudly* (`PubKeyBindingMismatch`), never silently.
+The w7 pod's August runs prove its dstack passes `[0..8]` verbatim, so `[8..40]` is
+expected to pass through the same way.
 
 Read it as three claims. Same measurement four times: same attested stack. Four different
 derived identities: genuinely four nodes, not one answering four times. Same opened value
@@ -132,7 +175,7 @@ A node exposes one HTTP port through the platform, and that is the entire outsid
 | route | says |
 |---|---|
 | `/health` | the process is alive, and its role |
-| `/attestation` | this node's own attested measurement, TCB status, derived identity |
+| `/attestation` | this node's own attested measurement, TCB status, derived identity, and — once a durable key is loaded — `node_id` + `pubkey` |
 | `/peers` | on the bootnode: who was admitted, who was rejected and why |
 | `/result` | what this party opened, once the run completes |
 
@@ -148,7 +191,8 @@ peer-connect timeouts. If your platform exposes container logs you do not need i
 
 Scripts assume a dstack host running the tee-daemon project API, and expect
 `WEBHOST_STAGING` and `TEE_DAEMON_TOKEN` in the environment, plus `STOFFEL_AUTH_TOKEN`
-for the committee registration secret.
+for the committee registration secret. Every node — bootnode and all four parties —
+gets a named volume at `/data`, where the durable identity key lives across restarts.
 
 ```sh
 # 1. what CVM stack are we pinning?
