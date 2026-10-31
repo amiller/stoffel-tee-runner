@@ -16,6 +16,12 @@ the `stoffel-lobby` binary (`crates/lobby/tests/http.rs`, transcript committed u
 `.evidence/issue-2/`), including unknown fields, a forged signature, a record tampered
 after signing, refusal to fabricate a bundle from an incomplete lifecycle, reload of
 the store with re-verification, and rejection of a tampered store line at startup.
+The write-path gates are covered the same way (transcript under
+`.evidence/issue-9/`): job ids are enforced as derived, `GET /jobs?state=` filters on
+lifecycle derived from the record counts, a byte-identical node replay conflicts
+with 409 and appends nothing, joins are checked against the announcing node's
+capabilities, and reload re-runs the write validation for node ids, capabilities and
+references so a bad line aborts startup.
 The bundle the service returns is also re-verified signature-by-signature with
 `lobby-records` alone, without asking the service. There is no staging deployment or
 `stoffel-verify` binary in this repository, so quote verification and full independent
@@ -81,11 +87,14 @@ durable and what makes every later signature by this node meaningful.
 
 **`JobRecord`** — signed by the proposer.
 ```
-job_id     = hash(program_bytecode, entry, n, t)
+job_id     = blake3(program_id || entry || n || t) — derived, never proposer-chosen;
+             the service rejects a job whose id is not exactly this preimage
+             (lobby_records::job_id_for states the byte encoding)
 program    bytecode, or a hash plus where to fetch it
 policy     accepted measurements, accepted compose hashes
 not_before optional; this is what "scheduled" means
-state      open -> forming -> running -> finished | failed
+state      derived by the lobby from the record stream, never mutated in storage:
+             open below n joins, forming at n joins, finished at n results
 ```
 
 **`JoinRecord`** — a node signs "I will serve job_id as party i".
